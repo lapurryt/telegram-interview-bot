@@ -139,6 +139,56 @@ def send_booking_log(user_info, selected_date, selected_time):
         if loop:
             loop.close()
 
+def send_cancellation_log(user_info, selected_date, selected_time):
+    """Function to send cancellation notification (synchronous wrapper)"""
+    try:
+        # Run the async function in a new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Create a new bot instance for this call
+        bot = Bot(token=keys.token)
+        
+        # Format the notification message
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
+        formatted_date = f"{date_obj.strftime('%d.%m')} {day_names[date_obj.weekday()]}"
+        
+        # Get username or first name
+        username = user_info.get('username', '')
+        first_name = user_info.get('first_name', 'Unknown')
+        
+        if username:
+            user_display = f"@{username}"
+        else:
+            user_display = first_name
+        
+        notification_text = (
+            f"❌ **Interview Cancelled**\n\n"
+            f"👤 **User:** {user_display}\n"
+            f"📅 **Date:** {formatted_date}\n"
+            f"⏰ **Time:** {selected_time}\n"
+            f"🆔 **User ID:** {user_info.get('id', 'Unknown')}\n"
+            f"📝 **Cancelled at:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+        )
+        
+        # Send the notification
+        bot.send_message(
+            chat_id=CHANNEL_ID,
+            text=notification_text,
+            parse_mode='Markdown'
+        )
+        
+        logger.info(f"Cancellation notification sent to channel {CHANNEL_ID} for user {user_display}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error sending cancellation notification to channel: {e}")
+        return False
+    finally:
+        if loop:
+            loop.close()
+
 def test_channel_connection():
     """Test the channel connection"""
     try:

@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 import keys
 import urllib3
-from notification_sender import send_booking_log
+from notification_sender import send_booking_log, send_cancellation_log
 
 # Configure detailed logging
 logging.basicConfig(
@@ -343,6 +343,7 @@ Commands:
 /start - Start the interview scheduling process
 /help - Show this help message
 /mybookings - View your current bookings
+/cancel - Cancel a booking
 
 How to use:
 1. Click /start to begin
@@ -370,7 +371,7 @@ def my_bookings(update: Update, context: CallbackContext):
         user_bookings = []
         for booking_key, booking_data in interview_bookings.items():
             if booking_data['user_id'] == user_id:
-                user_bookings.append(booking_data)
+                user_bookings.append((booking_key, booking_data))
         
         logger.debug(f"Found {len(user_bookings)} bookings for user {user_id}")
         
@@ -380,17 +381,119 @@ def my_bookings(update: Update, context: CallbackContext):
             return
         
         bookings_text = "📋 Your scheduled interviews:\n\n"
-        for i, booking in enumerate(user_bookings, 1):
+        keyboard = []
+        
+        for i, (booking_key, booking) in enumerate(user_bookings, 1):
             date_obj = datetime.strptime(booking['date'], '%Y-%m-%d')
             formatted_date = format_date_for_display(date_obj)
             bookings_text += f"{i}. 📅 {formatted_date} at {booking['time']}\n"
+            
+            # Add cancel button for each booking
+            keyboard.append([InlineKeyboardButton(f"❌ Cancel {i}", callback_data=f"cancel_booking_{booking_key}")])
         
-        update.message.reply_text(bookings_text)
+        # Add back button
+        keyboard.append([InlineKeyboardButton("📅 Schedule New Interview", callback_data="new_booking")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        update.message.reply_text(bookings_text, reply_markup=reply_markup)
         logger.info("Bookings list sent successfully")
         
     except Exception as e:
         logger.error(f"Error in my_bookings: {e}")
         update.message.reply_text("Sorry, something went wrong. Please try again.")
+
+def handle_cancellation(update: Update, context: CallbackContext):
+    """Handle booking cancellation"""
+    logger.info(f"Cancellation callback received: {update.callback_query.data}")
+    
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        callback_data = query.data
+        
+        if callback_data.startswith("cancel_booking_"):
+            # Extract booking key
+            booking_key = callback_data[15:]  # Remove "cancel_booking_" prefix
+            
+            if booking_key in interview_bookings:
+                booking_data = interview_bookings[booking_key]
+                user_id = update.effective_user.id
+                
+                # Check if this booking belongs to the user
+                if booking_data['user_id'] == user_id:
+                    # Get booking details for notification
+                    selected_date = booking_data['date']
+                    selected_time = booking_data['time']
+                    
+                    # Remove the booking
+                    del interview_bookings[booking_key]
+                    logger.info(f"Booking cancelled: {booking_key} for user {user_id}")
+                    
+                    # Send cancellation notification
+                    try:
+                        user_info = {
+                            'id': update.effective_user.id,
+                            'username': update.effective_user.username,
+                            'first_name': update.effective_user.first_name,
+                            'last_name': update.effective_user.last_name
+                        }
+                        
+                        # Send cancellation notification
+                        notification_sent = send_cancellation_log(user_info, selected_date, selected_time)
+                        if notification_sent:
+                            logger.info("Cancellation notification sent to private channel successfully")
+                        else:
+                            logger.warning("Failed to send cancellation notification to private channel")
+                            
+                    except Exception as e:
+                        logger.error(f"Error sending cancellation notification: {e}")
+                    
+                    # Confirm cancellation
+                    date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
+                    formatted_date = format_date_for_display(date_obj)
+                    
+                    keyboard = [[InlineKeyboardButton("📅 Schedule New Interview", callback_data="new_booking")]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    query.edit_message_text(
+                        f"✅ Interview cancelled successfully!\n\n"
+                        f"📅 Date: {formatted_date}\n"
+                        f"⏰ Time: {selected_time}\n\n"
+                        f"Your booking has been cancelled.",
+                        reply_markup=reply_markup
+                    )
+                    logger.info("Cancellation confirmation sent successfully")
+                else:
+                    query.edit_message_text("❌ You can only cancel your own bookings.")
+            else:
+                query.edit_message_text("❌ Booking not found or already cancelled.")
+        
+        elif callback_data == "new_booking":
+            # Start new booking process
+            available_dates = get_available_dates()
+            
+            keyboard = []
+            for date in available_dates:
+                display_text = format_date_for_display(date)
+                callback_data = f"date_{format_date_for_callback(date)}"
+                keyboard.append([InlineKeyboardButton(display_text, callback_data=callback_data)])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            query.edit_message_text(
+                "📅 On which date would you like to schedule your interview?",
+                reply_markup=reply_markup
+            )
+            logger.info("New booking process started successfully")
+            
+    except Exception as e:
+        logger.error(f"Error in handle_cancellation: {e}")
+        try:
+            update.callback_query.edit_message_text("Sorry, something went wrong. Please try again.")
+        except:
+            pass
 
 def error_handler(update: Update, context: CallbackContext):
     """Log Errors caused by Updates."""
@@ -419,6 +522,7 @@ def main():
         dispatcher.add_handler(CallbackQueryHandler(handle_date_selection, pattern="^date_"))
         dispatcher.add_handler(CallbackQueryHandler(handle_time_selection, pattern="^time_"))
         dispatcher.add_handler(CallbackQueryHandler(handle_confirmation, pattern="^(confirm_|cancel_booking|new_booking)"))
+        dispatcher.add_handler(CallbackQueryHandler(handle_cancellation, pattern="^cancel_booking_"))
         
         # Error handler
         dispatcher.add_error_handler(error_handler)
