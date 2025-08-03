@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 interview_bookings = {}
 
 def get_available_dates():
-    """Get 5 available weekdays starting from tomorrow"""
+    """Get 5 available weekdays starting from today"""
     logger.debug("Getting available dates...")
     available_dates = []
     current_date = datetime.now()
     
-    # Start from tomorrow
-    next_date = current_date + timedelta(days=1)
+    # Start from today
+    next_date = current_date
     
     # Find 5 weekdays (Monday to Friday)
     count = 0
