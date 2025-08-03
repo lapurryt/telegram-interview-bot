@@ -95,6 +95,9 @@ def handle_date_selection(update: Update, context: CallbackContext):
                 date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
                 formatted_date = format_date_for_display(date_obj)
                 
+                # Get booked slots for this date
+                booked_slots = get_booked_slots_for_date(selected_date)
+                
                 # Show available time slots
                 time_slots = [
                     "09:00 - 10:00",
@@ -107,8 +110,13 @@ def handle_date_selection(update: Update, context: CallbackContext):
                 
                 keyboard = []
                 for i, time_slot in enumerate(time_slots):
-                    callback_data = f"time_{selected_date}_{i}"
-                    keyboard.append([InlineKeyboardButton(time_slot, callback_data=callback_data)])
+                    if i in booked_slots:
+                        # Show booked slot as disabled
+                        keyboard.append([InlineKeyboardButton(f"❌ {time_slot} (Занято)", callback_data="slot_booked")])
+                    else:
+                        # Show available slot
+                        callback_data = f"time_{selected_date}_{i}"
+                        keyboard.append([InlineKeyboardButton(f"✅ {time_slot}", callback_data=callback_data)])
                 
                 # Add back button
                 keyboard.append([InlineKeyboardButton("← Назад к датам", callback_data="back_to_dates")])
@@ -117,7 +125,8 @@ def handle_date_selection(update: Update, context: CallbackContext):
                 
                 logger.debug(f"Sending time slots for date {formatted_date}")
                 query.edit_message_text(
-                    f"📅 Выбранная дата: {formatted_date}\n\n⏰ Выберите удобное время:",
+                    f"📅 Выбранная дата: {formatted_date}\n\n⏰ Выберите удобное время:\n\n"
+                    f"✅ - доступно\n❌ - занято",
                     reply_markup=reply_markup
                 )
                 logger.info("Time slots sent successfully")
@@ -241,6 +250,12 @@ def handle_confirmation(update: Update, context: CallbackContext):
                 date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
                 formatted_date = format_date_for_display(date_obj)
                 
+                # Check if time slot is available
+                if not is_time_slot_available(selected_date, time_slot_index):
+                    query.edit_message_text("❌ Это время уже занято. Пожалуйста, выберите другое время.")
+                    logger.warning(f"Time slot {selected_date}_{time_slot_index} already booked.")
+                    return
+                
                 # Store the booking (in a real app, save to database)
                 user_id = update.effective_user.id
                 booking_key = f"{selected_date}_{time_slot_index}"
@@ -280,7 +295,7 @@ def handle_confirmation(update: Update, context: CallbackContext):
                     f"✅ Запись на собеседование успешно оформлена!\n\n"
                     f"📅 Дата: {formatted_date}\n"
                     f"⏰ Время: {selected_time}\n\n"
-                    f"Пожалуйста, приходите за 5 минут до назначенного времени.\n"
+                    f"Пожалуйста, приходите за 15 минут до назначенного времени.\n"
                     f"Мы отправим вам напоминание за 1 час до собеседования.",
                     reply_markup=reply_markup
                 )
@@ -495,6 +510,56 @@ def handle_cancellation(update: Update, context: CallbackContext):
         except:
             pass
 
+def is_time_slot_available(selected_date, time_slot_index):
+    """Check if a time slot is available for booking"""
+    logger.debug(f"Checking availability for date {selected_date}, slot {time_slot_index}")
+    
+    # Check if this specific time slot is already booked
+    booking_key = f"{selected_date}_{time_slot_index}"
+    
+    if booking_key in interview_bookings:
+        logger.debug(f"Time slot {booking_key} is already booked")
+        return False
+    
+    logger.debug(f"Time slot {booking_key} is available")
+    return True
+
+def get_booked_slots_for_date(selected_date):
+    """Get all booked time slots for a specific date"""
+    booked_slots = []
+    for booking_key, booking_data in interview_bookings.items():
+        if booking_data['date'] == selected_date:
+            # Extract time slot index from booking key
+            try:
+                time_slot_index = int(booking_key.split('_')[1])
+                booked_slots.append(time_slot_index)
+            except (IndexError, ValueError):
+                continue
+    
+    logger.debug(f"Booked slots for {selected_date}: {booked_slots}")
+    return booked_slots
+
+def handle_booked_slot(update: Update, context: CallbackContext):
+    """Handle when user tries to select a booked time slot"""
+    logger.info("Booked slot callback received")
+    
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        query.edit_message_text(
+            "❌ Это время уже занято другим студентом.\n\n"
+            "Пожалуйста, выберите другое время или другую дату."
+        )
+        logger.info("Booked slot message sent")
+        
+    except Exception as e:
+        logger.error(f"Error in handle_booked_slot: {e}")
+        try:
+            update.callback_query.edit_message_text("Извините, что-то пошло не так. Попробуйте еще раз.")
+        except:
+            pass
+
 def error_handler(update: Update, context: CallbackContext):
     """Log Errors caused by Updates."""
     logger.error(f'Update {update} caused error {context.error}')
@@ -524,6 +589,7 @@ def main():
         dispatcher.add_handler(CallbackQueryHandler(handle_cancellation, pattern="^cancel_booking_"))
         dispatcher.add_handler(CallbackQueryHandler(handle_confirmation, pattern="^(confirm_|new_booking)"))
         dispatcher.add_handler(CallbackQueryHandler(handle_confirmation, pattern="^cancel_booking$"))
+        dispatcher.add_handler(CallbackQueryHandler(handle_booked_slot, pattern="^slot_booked$"))
         
         # Error handler
         dispatcher.add_error_handler(error_handler)
