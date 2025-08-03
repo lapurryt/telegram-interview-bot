@@ -38,7 +38,7 @@ def get_available_dates():
 
 def format_date_for_display(date):
     """Format date as DD.MM day_name"""
-    day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    day_names = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница']
     return f"{date.strftime('%d.%m')} {day_names[date.weekday()]}"
 
 def format_date_for_callback(date):
@@ -51,7 +51,7 @@ def start_command(update: Update, context: CallbackContext):
     
     try:
         user = update.effective_user
-        welcome_text = f"Hello {user.first_name}! 👋\n\nI'm your interview scheduling bot. Let me show you available interview dates."
+        welcome_text = f"Привет {user.first_name}! 👋\n\nЯ бот для записи на собеседование. Покажу вам доступные даты."
         
         # Get available dates
         available_dates = get_available_dates()
@@ -67,14 +67,14 @@ def start_command(update: Update, context: CallbackContext):
         
         logger.debug(f"Sending welcome message with {len(keyboard)} date options")
         update.message.reply_text(
-            welcome_text + "\n\n📅 On which date would you like to schedule your interview?",
+            welcome_text + "\n\n📅 На какую дату вы хотите записаться на собеседование?",
             reply_markup=reply_markup
         )
         logger.info("Welcome message sent successfully")
         
     except Exception as e:
         logger.error(f"Error in start_command: {e}")
-        update.message.reply_text("Sorry, something went wrong. Please try again.")
+        update.message.reply_text("Извините, что-то пошло не так. Попробуйте еще раз.")
 
 def handle_date_selection(update: Update, context: CallbackContext):
     """Handle date selection and show available time slots"""
@@ -111,20 +111,20 @@ def handle_date_selection(update: Update, context: CallbackContext):
                     keyboard.append([InlineKeyboardButton(time_slot, callback_data=callback_data)])
                 
                 # Add back button
-                keyboard.append([InlineKeyboardButton("← Back to dates", callback_data="back_to_dates")])
+                keyboard.append([InlineKeyboardButton("← Назад к датам", callback_data="back_to_dates")])
                 
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 logger.debug(f"Sending time slots for date {formatted_date}")
                 query.edit_message_text(
-                    f"📅 Selected date: {formatted_date}\n\n⏰ Choose your preferred time slot:",
+                    f"📅 Выбранная дата: {formatted_date}\n\n⏰ Выберите удобное время:",
                     reply_markup=reply_markup
                 )
                 logger.info("Time slots sent successfully")
                 
             except ValueError as e:
                 logger.error(f"Invalid date format: {e}")
-                query.edit_message_text("❌ Invalid date format. Please try again.")
+                query.edit_message_text("❌ Неверный формат даты. Попробуйте еще раз.")
         
         elif callback_data == "back_to_dates":
             logger.debug("Going back to date selection")
@@ -140,7 +140,7 @@ def handle_date_selection(update: Update, context: CallbackContext):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             query.edit_message_text(
-                "📅 On which date would you like to schedule your interview?",
+                "📅 На какую дату вы хотите записаться на собеседование?",
                 reply_markup=reply_markup
             )
             logger.info("Back to dates sent successfully")
@@ -148,7 +148,7 @@ def handle_date_selection(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Error in handle_date_selection: {e}")
         try:
-            update.callback_query.edit_message_text("Sorry, something went wrong. Please try again.")
+            update.callback_query.edit_message_text("Извините, что-то пошло не так. Попробуйте еще раз.")
         except:
             pass
 
@@ -185,20 +185,20 @@ def handle_time_selection(update: Update, context: CallbackContext):
                 # Create confirmation keyboard
                 keyboard = [
                     [
-                        InlineKeyboardButton("✅ Confirm", callback_data=f"confirm_{selected_date}_{time_slot_index}"),
-                        InlineKeyboardButton("❌ Cancel", callback_data="cancel_booking")
+                        InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_{selected_date}_{time_slot_index}"),
+                        InlineKeyboardButton("❌ Отмена", callback_data="cancel_booking")
                     ],
-                    [InlineKeyboardButton("← Back to times", callback_data=f"date_{selected_date}")]
+                    [InlineKeyboardButton("← Назад к времени", callback_data=f"date_{selected_date}")]
                 ]
                 
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 logger.debug(f"Sending confirmation for {formatted_date} at {selected_time}")
                 query.edit_message_text(
-                    f"📋 Booking Summary:\n\n"
-                    f"📅 Date: {formatted_date}\n"
-                    f"⏰ Time: {selected_time}\n\n"
-                    f"Please confirm your interview booking:",
+                    f"📋 Сводка записи:\n\n"
+                    f"📅 Дата: {formatted_date}\n"
+                    f"⏰ Время: {selected_time}\n\n"
+                    f"Подтвердите запись на собеседование:",
                     reply_markup=reply_markup
                 )
                 logger.info("Confirmation sent successfully")
@@ -206,7 +206,7 @@ def handle_time_selection(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Error in handle_time_selection: {e}")
         try:
-            update.callback_query.edit_message_text("Sorry, something went wrong. Please try again.")
+            update.callback_query.edit_message_text("Извините, что-то пошло не так. Попробуйте еще раз.")
         except:
             pass
 
@@ -273,15 +273,15 @@ def handle_confirmation(update: Update, context: CallbackContext):
                     logger.error(f"Error sending notification: {e}")
                 
                 # Create keyboard to start over
-                keyboard = [[InlineKeyboardButton("📅 Schedule Another Interview", callback_data="new_booking")]]
+                keyboard = [[InlineKeyboardButton("📅 Записаться еще раз", callback_data="new_booking")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 query.edit_message_text(
-                    f"✅ Interview booked successfully!\n\n"
-                    f"📅 Date: {formatted_date}\n"
-                    f"⏰ Time: {selected_time}\n\n"
-                    f"Please arrive 5 minutes before your scheduled time.\n"
-                    f"We'll send you a reminder 1 hour before the interview.",
+                    f"✅ Запись на собеседование успешно оформлена!\n\n"
+                    f"📅 Дата: {formatted_date}\n"
+                    f"⏰ Время: {selected_time}\n\n"
+                    f"Пожалуйста, приходите за 5 минут до назначенного времени.\n"
+                    f"Мы отправим вам напоминание за 1 час до собеседования.",
                     reply_markup=reply_markup
                 )
                 logger.info("Booking confirmation sent successfully")
@@ -300,7 +300,7 @@ def handle_confirmation(update: Update, context: CallbackContext):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             query.edit_message_text(
-                "📅 On which date would you like to schedule your interview?",
+                "📅 На какую дату вы хотите записаться на собеседование?",
                 reply_markup=reply_markup
             )
             logger.info("Back to dates after cancellation sent successfully")
@@ -319,7 +319,7 @@ def handle_confirmation(update: Update, context: CallbackContext):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             query.edit_message_text(
-                "📅 On which date would you like to schedule your interview?",
+                "📅 На какую дату вы хотите записаться на собеседование?",
                 reply_markup=reply_markup
             )
             logger.info("New booking process started successfully")
@@ -327,7 +327,7 @@ def handle_confirmation(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Error in handle_confirmation: {e}")
         try:
-            update.callback_query.edit_message_text("Sorry, something went wrong. Please try again.")
+            update.callback_query.edit_message_text("Извините, что-то пошло не так. Попробуйте еще раз.")
         except:
             pass
 
@@ -337,28 +337,28 @@ def help_command(update: Update, context: CallbackContext):
     
     try:
         help_text = """
-🤖 Interview Scheduling Bot Help
+🤖 Помощь по боту записи на собеседование
 
-Commands:
-/start - Start the interview scheduling process
-/help - Show this help message
-/mybookings - View your current bookings
-/cancel - Cancel a booking
+Команды:
+/start - Начать процесс записи на собеседование
+/help - Показать эту справку
+/mybookings - Посмотреть ваши записи
+/cancel - Отменить запись
 
-How to use:
-1. Click /start to begin
-2. Select an available date
-3. Choose your preferred time slot
-4. Confirm your booking
+Как использовать:
+1. Нажмите /start для начала
+2. Выберите доступную дату
+3. Выберите удобное время
+4. Подтвердите запись
 
-Available times: 9:00 AM - 5:00 PM (with lunch break)
+Доступное время: 9:00 - 17:00 (с перерывом на обед)
 """
         update.message.reply_text(help_text)
         logger.info("Help message sent successfully")
         
     except Exception as e:
         logger.error(f"Error in help_command: {e}")
-        update.message.reply_text("Sorry, something went wrong. Please try again.")
+        update.message.reply_text("Извините, что-то пошло не так. Попробуйте еще раз.")
 
 def my_bookings(update: Update, context: CallbackContext):
     """Show user's current bookings"""
@@ -376,23 +376,23 @@ def my_bookings(update: Update, context: CallbackContext):
         logger.debug(f"Found {len(user_bookings)} bookings for user {user_id}")
         
         if not user_bookings:
-            update.message.reply_text("📋 You don't have any scheduled interviews yet.\n\nUse /start to schedule one!")
+            update.message.reply_text("📋 У вас пока нет записей на собеседование.\n\nИспользуйте /start для записи!")
             logger.info("No bookings found message sent")
             return
         
-        bookings_text = "📋 Your scheduled interviews:\n\n"
+        bookings_text = "📋 Ваши записи на собеседование:\n\n"
         keyboard = []
         
         for i, (booking_key, booking) in enumerate(user_bookings, 1):
             date_obj = datetime.strptime(booking['date'], '%Y-%m-%d')
             formatted_date = format_date_for_display(date_obj)
-            bookings_text += f"{i}. 📅 {formatted_date} at {booking['time']}\n"
+            bookings_text += f"{i}. 📅 {formatted_date} в {booking['time']}\n"
             
             # Add cancel button for each booking
-            keyboard.append([InlineKeyboardButton(f"❌ Cancel {i}", callback_data=f"cancel_booking_{booking_key}")])
+            keyboard.append([InlineKeyboardButton(f"❌ Отменить {i}", callback_data=f"cancel_booking_{booking_key}")])
         
         # Add back button
-        keyboard.append([InlineKeyboardButton("📅 Schedule New Interview", callback_data="new_booking")])
+        keyboard.append([InlineKeyboardButton("📅 Записаться еще раз", callback_data="new_booking")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -401,7 +401,7 @@ def my_bookings(update: Update, context: CallbackContext):
         
     except Exception as e:
         logger.error(f"Error in my_bookings: {e}")
-        update.message.reply_text("Sorry, something went wrong. Please try again.")
+        update.message.reply_text("Извините, что-то пошло не так. Попробуйте еще раз.")
 
 def handle_cancellation(update: Update, context: CallbackContext):
     """Handle booking cancellation"""
@@ -454,21 +454,21 @@ def handle_cancellation(update: Update, context: CallbackContext):
                     date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
                     formatted_date = format_date_for_display(date_obj)
                     
-                    keyboard = [[InlineKeyboardButton("📅 Schedule New Interview", callback_data="new_booking")]]
+                    keyboard = [[InlineKeyboardButton("📅 Записаться еще раз", callback_data="new_booking")]]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     query.edit_message_text(
-                        f"✅ Interview cancelled successfully!\n\n"
-                        f"📅 Date: {formatted_date}\n"
-                        f"⏰ Time: {selected_time}\n\n"
-                        f"Your booking has been cancelled.",
+                        f"✅ Запись успешно отменена!\n\n"
+                        f"📅 Дата: {formatted_date}\n"
+                        f"⏰ Время: {selected_time}\n\n"
+                        f"Ваша запись была отменена.",
                         reply_markup=reply_markup
                     )
                     logger.info("Cancellation confirmation sent successfully")
                 else:
-                    query.edit_message_text("❌ You can only cancel your own bookings.")
+                    query.edit_message_text("❌ Вы можете отменить только свои записи.")
             else:
-                query.edit_message_text("❌ Booking not found or already cancelled.")
+                query.edit_message_text("❌ Запись не найдена или уже отменена.")
         
         elif callback_data == "new_booking":
             # Start new booking process
@@ -483,7 +483,7 @@ def handle_cancellation(update: Update, context: CallbackContext):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             query.edit_message_text(
-                "📅 On which date would you like to schedule your interview?",
+                "📅 На какую дату вы хотите записаться на собеседование?",
                 reply_markup=reply_markup
             )
             logger.info("New booking process started successfully")
@@ -491,7 +491,7 @@ def handle_cancellation(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Error in handle_cancellation: {e}")
         try:
-            update.callback_query.edit_message_text("Sorry, something went wrong. Please try again.")
+            update.callback_query.edit_message_text("Извините, что-то пошло не так. Попробуйте еще раз.")
         except:
             pass
 
@@ -521,8 +521,9 @@ def main():
         logger.debug("Registering callback query handlers...")
         dispatcher.add_handler(CallbackQueryHandler(handle_date_selection, pattern="^date_"))
         dispatcher.add_handler(CallbackQueryHandler(handle_time_selection, pattern="^time_"))
-        dispatcher.add_handler(CallbackQueryHandler(handle_confirmation, pattern="^(confirm_|cancel_booking|new_booking)"))
         dispatcher.add_handler(CallbackQueryHandler(handle_cancellation, pattern="^cancel_booking_"))
+        dispatcher.add_handler(CallbackQueryHandler(handle_confirmation, pattern="^(confirm_|new_booking)"))
+        dispatcher.add_handler(CallbackQueryHandler(handle_confirmation, pattern="^cancel_booking$"))
         
         # Error handler
         dispatcher.add_error_handler(error_handler)
