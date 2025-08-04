@@ -8,10 +8,11 @@ import logging
 import json
 import os
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
+from telegram import BotCommand
 import keys
-from notification_sender import send_booking_log, send_cancellation_log, send_reminder_log
+from notification_sender import send_booking_log, send_cancellation_log, send_reminder_log, send_mentor_booking_log
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
@@ -25,6 +26,34 @@ logger = logging.getLogger(__name__)
 # Global variables
 interview_bookings = {}  # Store interview bookings (in production, use a database)
 DATABASE_FILE = "bookings.json"  # JSON database file
+USERS_DATABASE_FILE = "users.json"  # JSON database file for user registrations
+MENTORS_DATABASE_FILE = "mentors.json"  # JSON database file for mentor assignments
+users_database = {}  # Store user registration data
+mentors_database = {}  # Store mentor assignments and availability
+
+# Mentor configuration
+MENTORS = {
+    "mentor_1": {
+        "name": "Илья",
+        "username": "@yashonflame",
+        "max_students": 5,
+        "specialization": "Full Stack Development"
+    },
+    "mentor_2": {
+        "name": "Андрей",
+        "username": "@hxcnv",
+        "max_students": 5,
+        "specialization": "Backend Development"
+    }
+}
+
+# Default mentor assignments (you can modify this)
+DEFAULT_MENTOR_ASSIGNMENTS = {
+    "780202036": "mentor_1",  # yashonflame -> Илья
+    "432182242": "mentor_2",  # hey_cami -> Андрей
+    "7900814468": "mentor_1", # GolubovNAi -> Илья
+    "887557370": "mentor_2",  # hxcnv -> Андрей
+}
 
 # Time slots configuration
 TIME_SLOTS = [
@@ -50,6 +79,161 @@ logger.info("Scheduler started with Moscow timezone")
 # DATABASE FUNCTIONS
 # ============================================================================
 
+def load_users_from_database():
+    """Load users from JSON database"""
+    global users_database
+    try:
+        if os.path.exists(USERS_DATABASE_FILE):
+            with open(USERS_DATABASE_FILE, 'r', encoding='utf-8') as file:
+                users_database = json.load(file)
+                logger.info(f"Loaded {len(users_database)} users from database")
+        else:
+            users_database = {}
+            logger.info("No existing users database found, starting with empty users")
+    except Exception as e:
+        logger.error(f"Error loading users database: {e}")
+        users_database = {}
+
+def save_users_to_database():
+    """Save users to JSON database"""
+    try:
+        with open(USERS_DATABASE_FILE, 'w', encoding='utf-8') as file:
+            json.dump(users_database, file, ensure_ascii=False, indent=2)
+        logger.info(f"Saved {len(users_database)} users to database")
+    except Exception as e:
+        logger.error(f"Error saving users database: {e}")
+
+def register_user_if_new(user):
+    """Register a new user if they don't exist in database"""
+    user_id = str(user.id)
+    if user_id not in users_database:
+        users_database[user_id] = {
+            'user_id': user.id,
+            'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'registration_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'first_interaction': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        save_users_to_database()
+        logger.info(f"Registered new user: {user.id} ({user.username})")
+        return True
+    return False
+
+def get_user_registration_date(user_id):
+    """Get user registration date"""
+    user_id_str = str(user_id)
+    if user_id_str in users_database:
+        return users_database[user_id_str].get('registration_date', 'Неизвестно')
+    return 'Неизвестно'
+
+# ============================================================================
+# MENTOR MANAGEMENT FUNCTIONS
+# ============================================================================
+
+def load_mentors_from_database():
+    """Load mentors from JSON database"""
+    global mentors_database
+    try:
+        if os.path.exists(MENTORS_DATABASE_FILE):
+            with open(MENTORS_DATABASE_FILE, 'r', encoding='utf-8') as file:
+                mentors_database = json.load(file)
+                logger.info(f"Loaded {len(mentors_database)} mentor assignments from database")
+        else:
+            mentors_database = {}
+            logger.info("No existing mentors database found, starting with empty mentors")
+    except Exception as e:
+        logger.error(f"Error loading mentors database: {e}")
+        mentors_database = {}
+
+def save_mentors_to_database():
+    """Save mentors to JSON database"""
+    try:
+        with open(MENTORS_DATABASE_FILE, 'w', encoding='utf-8') as file:
+            json.dump(mentors_database, file, ensure_ascii=False, indent=2)
+        logger.info(f"Saved {len(mentors_database)} mentor assignments to database")
+    except Exception as e:
+        logger.error(f"Error saving mentors database: {e}")
+
+def get_user_permanent_mentor(user_id):
+    """Get user's permanent mentor"""
+    user_id_str = str(user_id)
+    
+    # Check if user has a permanent mentor in database
+    if user_id_str in mentors_database:
+        return mentors_database[user_id_str].get('permanent_mentor')
+    
+    # Check default assignments
+    if user_id_str in DEFAULT_MENTOR_ASSIGNMENTS:
+        permanent_mentor = DEFAULT_MENTOR_ASSIGNMENTS[user_id_str]
+        # Save to database
+        if user_id_str not in mentors_database:
+            mentors_database[user_id_str] = {}
+        mentors_database[user_id_str]['permanent_mentor'] = permanent_mentor
+        mentors_database[user_id_str]['used_one_time_change'] = False
+        save_mentors_to_database()
+        return permanent_mentor
+    
+    # Return None if no mentor assigned (user needs to choose)
+    return None
+
+def has_used_one_time_change(user_id):
+    """Check if user has used their one-time mentor change (deprecated - now unlimited)"""
+    return False
+
+def set_user_permanent_mentor(user_id, mentor_id):
+    """Set user's permanent mentor"""
+    user_id_str = str(user_id)
+    if user_id_str not in mentors_database:
+        mentors_database[user_id_str] = {}
+    mentors_database[user_id_str]['permanent_mentor'] = mentor_id
+    save_mentors_to_database()
+    logger.info(f"Set permanent mentor {mentor_id} for user {user_id}")
+
+def mark_one_time_change_used(user_id):
+    """Mark that user has used their one-time mentor change (deprecated - now unlimited)"""
+    pass
+
+def get_mentor_availability(mentor_id, selected_date):
+    """Get mentor's availability for a specific date"""
+    mentor_bookings = 0
+    for booking_key, booking_data in interview_bookings.items():
+        if (booking_data.get('mentor_id') == mentor_id and 
+            booking_data['date'] == selected_date):
+            mentor_bookings += 1
+    
+    max_students = MENTORS[mentor_id]['max_students']
+    return max_students - mentor_bookings
+
+def get_available_mentors_for_date(selected_date, user_id):
+    """Get available mentors for a specific date and user"""
+    available_mentors = []
+    permanent_mentor = get_user_permanent_mentor(user_id)
+    
+    # If user has a permanent mentor, only show that mentor
+    if permanent_mentor:
+        permanent_availability = get_mentor_availability(permanent_mentor, selected_date)
+        if permanent_availability > 0:
+            available_mentors.append({
+                'mentor_id': permanent_mentor,
+                'name': MENTORS[permanent_mentor]['name'],
+                'availability': permanent_availability,
+                'is_permanent': True
+            })
+    else:
+        # User doesn't have a permanent mentor, show all available mentors
+        for mentor_id, mentor_info in MENTORS.items():
+            availability = get_mentor_availability(mentor_id, selected_date)
+            if availability > 0:
+                available_mentors.append({
+                    'mentor_id': mentor_id,
+                    'name': mentor_info['name'],
+                    'availability': availability,
+                    'is_permanent': False
+                })
+    
+    return available_mentors
+
 def load_bookings_from_database():
     """Load bookings from JSON database"""
     global interview_bookings
@@ -63,7 +247,7 @@ def load_bookings_from_database():
             logger.info("No existing database found, starting with empty bookings")
     except Exception as e:
         logger.error(f"Error loading database: {e}")
-        interview_bookings = {}
+interview_bookings = {}
 
 def save_bookings_to_database():
     """Save bookings to JSON database"""
@@ -230,8 +414,20 @@ def get_available_dates():
     while date_count < 5:
         # Check if current date is a weekday (Monday = 0, Sunday = 6)
         if current_date.weekday() < 5:  # Monday to Friday
-            available_dates.append(current_date.strftime('%Y-%m-%d'))
-            date_count += 1
+            # Only add today if there are still available time slots
+            if current_date.date() == datetime.now().date():
+                # Check if there are any available time slots for today
+                has_available_slots = False
+                for i in range(len(TIME_SLOTS)):
+                    if not is_time_slot_in_past(current_date.strftime('%Y-%m-%d'), i):
+                        has_available_slots = True
+                        break
+                if has_available_slots:
+                    available_dates.append(current_date.strftime('%Y-%m-%d'))
+                    date_count += 1
+            else:
+                available_dates.append(current_date.strftime('%Y-%m-%d'))
+                date_count += 1
         current_date += timedelta(days=1)
     
     return available_dates
@@ -250,8 +446,44 @@ def format_date_for_callback(date):
 
 def is_time_slot_available(selected_date, time_slot_index):
     """Check if a time slot is available for booking"""
+    # Check if time slot is in the past
+    if is_time_slot_in_past(selected_date, time_slot_index):
+        return False
+    
+    # Check if already booked
     booking_key = f"{selected_date}_{time_slot_index}"
     return booking_key not in interview_bookings
+
+def is_time_slot_in_past(selected_date, time_slot_index):
+    """Check if a time slot is in the past"""
+    try:
+        # Parse the selected date
+        date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
+        
+        # Get current date and time
+        current_datetime = datetime.now()
+        
+        # If the date is in the past, the time slot is unavailable
+        if date_obj.date() < current_datetime.date():
+            return True
+        
+        # If it's today, check the specific time
+        if date_obj.date() == current_datetime.date():
+            # Get the start time of the time slot
+            time_slot = TIME_SLOTS[time_slot_index]
+            start_time_str = time_slot.split(' - ')[0]  # Get "09:00" from "09:00 - 10:00"
+            
+            # Parse the start time
+            slot_start_time = datetime.strptime(f"{selected_date} {start_time_str}", '%Y-%m-%d %H:%M')
+            
+            # If current time is past the slot start time, it's unavailable
+            if current_datetime > slot_start_time:
+                return True
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error checking if time slot is in past: {e}")
+        return True  # If there's an error, assume it's unavailable
 
 def get_booked_slots_for_date(selected_date):
     """Get list of booked time slots for a specific date"""
@@ -272,10 +504,95 @@ def start_command(update: Update, context: CallbackContext):
         user = update.effective_user
         logger.info(f"Start command received from user {user.id} ({user.username})")
         
+        # Register user if new
+        is_new_user = register_user_if_new(user)
+        
+        # Check if user has a permanent mentor
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        
+        if permanent_mentor is None:
+            # User needs to choose a permanent mentor first
+            welcome_text = (
+                f"Привет, {user.first_name}! 👋\n\n"
+                f"Добро пожаловать в систему записи на собеседование!\n\n"
+                f"🎯 Сначала выберите вашего основного ментора:\n"
+                f"Этот ментор будет вашим постоянным наставником."
+            )
+            
+            # Create mentor selection buttons
+            keyboard = []
+            for mentor_id, mentor_info in MENTORS.items():
+                button_text = f"👤 {mentor_info['name']} {mentor_info['username']}"
+                callback_data = f"choose_mentor_{mentor_id}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            update.message.reply_text(welcome_text, reply_markup=reply_markup)
+            logger.info("Mentor selection request sent to new user")
+            return
+        
+        # User has a permanent mentor, show normal welcome
         welcome_text = (
             f"Привет, {user.first_name}! 👋\n\n"
             f"Добро пожаловать в систему записи на собеседование!\n\n"
             f"📅 Выберите удобную дату для собеседования:"
+        )
+    
+        # Get available dates
+        available_dates = get_available_dates()
+    
+        # Create inline keyboard with date buttons
+        keyboard = []
+        for date_str in available_dates:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            formatted_date = format_date_for_display(date_obj)
+            callback_data = f"date_{format_date_for_callback(date_obj)}"
+            keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
+    
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Create outline keyboard with main buttons
+        outline_keyboard = [
+            ["Мои собеседования"],
+            ["Профиль"]
+        ]
+        outline_markup = ReplyKeyboardMarkup(outline_keyboard, resize_keyboard=True, one_time_keyboard=False)
+    
+        # Send message with both inline and outline keyboards
+        update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        logger.info("Welcome message sent successfully")
+        
+    except Exception as e:
+        logger.error(f"Error in start_command: {e}")
+        update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_mentor_choice(update: Update, context: CallbackContext):
+    """Handle mentor choice for new users"""
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        # Extract mentor ID from callback data
+        callback_data = query.data
+        if not callback_data.startswith('choose_mentor_'):
+            return
+        
+        mentor_id = callback_data.replace('choose_mentor_', '')
+        user = update.effective_user
+        
+        logger.info(f"Mentor choice callback received: {callback_data} from user {user.id}")
+        
+        # Set the user's permanent mentor
+        set_user_permanent_mentor(user.id, mentor_id)
+        
+        # Get mentor info for display
+        mentor_info = MENTORS[mentor_id]
+        
+        # Show confirmation and then the normal welcome
+        confirmation_text = (
+            f"✅ Отлично! Ваш основной ментор:\n"
+            f"👤 {mentor_info['name']} {mentor_info['username']}\n\n"
+            f"Теперь вы можете записываться на собеседования!"
         )
         
         # Get available dates
@@ -289,44 +606,85 @@ def start_command(update: Update, context: CallbackContext):
             callback_data = f"date_{format_date_for_callback(date_obj)}"
             keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
         
+        # Add profile button
+        keyboard.append([InlineKeyboardButton("👤 Мой профиль", callback_data="profile")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        update.message.reply_text(welcome_text, reply_markup=reply_markup)
-        logger.info("Welcome message sent successfully")
+        query.edit_message_text(text=confirmation_text, reply_markup=reply_markup)
+        logger.info(f"Mentor {mentor_id} assigned to user {user.id}")
         
     except Exception as e:
-        logger.error(f"Error in start_command: {e}")
-        update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+        logger.error(f"Error in handle_mentor_choice: {e}")
+        query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
 
 def handle_date_selection(update: Update, context: CallbackContext):
     """Handle date selection callback"""
     try:
         query = update.callback_query
         query.answer()
-        
+    
         # Extract date from callback data
         callback_data = query.data
         if not callback_data.startswith('date_'):
             return
         
         selected_date = callback_data.replace('date_', '')
-        logger.info(f"Date selection callback received: {callback_data}")
+        user = update.effective_user
+        logger.info(f"Date selection callback received: {callback_data} from user {user.id}")
         
-        # Get booked slots for this date
-        booked_slots = get_booked_slots_for_date(selected_date)
+        # Get user's permanent mentor
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        
+        if not permanent_mentor:
+            # User doesn't have a permanent mentor
+            response_text = (
+                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'))}\n\n"
+                f"❌ У вас не выбран основной ментор.\n\n"
+                f"Сначала выберите основного ментора в профиле."
+            )
+            keyboard = [[InlineKeyboardButton("👤 Мой профиль", callback_data="profile")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            query.edit_message_text(text=response_text, reply_markup=reply_markup)
+            return
+        
+        # Check if mentor is available for this date
+        mentor_availability = get_mentor_availability(permanent_mentor, selected_date)
+        if mentor_availability <= 0:
+            response_text = (
+                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'))}\n\n"
+                f"❌ Ваш ментор недоступен на эту дату.\n\n"
+                f"Попробуйте выбрать другую дату."
+            )
+            keyboard = [[InlineKeyboardButton("← Назад к датам", callback_data="back_to_dates")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            query.edit_message_text(text=response_text, reply_markup=reply_markup)
+            return
+        
+        # Get available time slots for this mentor and date
+        available_slots = []
+        for i, time_slot in enumerate(TIME_SLOTS):
+            # Check if this time slot is available for this mentor
+            mentor_slot_key = f"{selected_date}_{permanent_mentor}_{i}"
+            if mentor_slot_key not in interview_bookings and not is_time_slot_in_past(selected_date, i):
+                available_slots.append((i, time_slot))
+        
+        if not available_slots:
+            response_text = (
+                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'))}\n\n"
+                f"❌ У вашего ментора нет свободного времени на эту дату.\n\n"
+                f"Попробуйте выбрать другую дату."
+            )
+            keyboard = [[InlineKeyboardButton("← Назад к датам", callback_data="back_to_dates")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            query.edit_message_text(text=response_text, reply_markup=reply_markup)
+            return
         
         # Create time slot buttons
         keyboard = []
-        for i, time_slot in enumerate(TIME_SLOTS):
-            if i in booked_slots:
-                # Slot is booked
-                button_text = f"❌ {time_slot} (Занято)"
-                callback_data = f"booked_slot_{selected_date}_{i}"
-            else:
-                # Slot is available
-                button_text = f"✅ {time_slot}"
-                callback_data = f"time_{selected_date}_{i}"
-            
+        for i, time_slot in available_slots:
+            button_text = f"✅ {time_slot}"
+            callback_data = f"time_{selected_date}_{permanent_mentor}_{i}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
         
         # Add back button
@@ -338,7 +696,14 @@ def handle_date_selection(update: Update, context: CallbackContext):
         date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
         formatted_date = format_date_for_display(date_obj)
         
-        response_text = f"📅 Выбрана дата: {formatted_date}\n\n⏰ Выберите удобное время:\n\n✅ - Доступно | ❌ - Занято"
+        # Get mentor info for display
+        mentor_info = MENTORS[permanent_mentor]
+        
+        response_text = (
+            f"📅 Дата: {formatted_date}\n"
+            f"👤 Ментор: {mentor_info['name']} {mentor_info['username']}\n\n"
+            f"⏰ Выберите удобное время:"
+        )
         
         query.edit_message_text(text=response_text, reply_markup=reply_markup)
         logger.info("Time slots sent successfully")
@@ -347,50 +712,72 @@ def handle_date_selection(update: Update, context: CallbackContext):
         logger.error(f"Error in handle_date_selection: {e}")
         query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
 
+
+
 def handle_time_selection(update: Update, context: CallbackContext):
     """Handle time selection callback"""
     try:
         query = update.callback_query
         query.answer()
-        
+    
         # Extract data from callback
         callback_data = query.data
         if not callback_data.startswith('time_'):
             return
         
+        # Handle mentor IDs that contain underscores (e.g., mentor_1, mentor_2)
         parts = callback_data.split('_')
-        selected_date = parts[1]
-        time_slot_index = int(parts[2])
-        selected_time = TIME_SLOTS[time_slot_index]
+        if len(parts) < 5:  # Need at least: time, date, mentor, id, time_slot_index
+            return
         
-        logger.info(f"Time selection callback received: {callback_data}")
+        selected_date = parts[1]
+        # Reconstruct mentor_id from parts
+        mentor_id = f"{parts[2]}_{parts[3]}"
+        time_slot_index = int(parts[4])
+        selected_time = TIME_SLOTS[time_slot_index]
+        user = update.effective_user
+        
+        logger.info(f"Time selection callback received: {callback_data} from user {user.id}")
+        
+        # Check if time slot is in the past
+        if is_time_slot_in_past(selected_date, time_slot_index):
+            query.edit_message_text("❌ Это время уже прошло. Пожалуйста, выберите другое время.")
+            return
         
         # Check if slot is still available
-        if not is_time_slot_available(selected_date, time_slot_index):
+        mentor_slot_key = f"{selected_date}_{mentor_id}_{time_slot_index}"
+        if mentor_slot_key in interview_bookings:
             query.edit_message_text("❌ Это время уже занято. Пожалуйста, выберите другое время.")
             return
         
         # Format date for display
         date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
         formatted_date = format_date_for_display(date_obj)
+            
+        # Get mentor info
+        mentor_info = MENTORS[mentor_id]
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        is_one_time_change = mentor_id != permanent_mentor
         
         # Create confirmation message
+        mentor_type = "🔄 Временная замена" if is_one_time_change else "👤 Постоянный ментор"
         confirmation_text = (
             f"📋 **Подтверждение записи**\n\n"
             f"📅 Дата: {formatted_date}\n"
-            f"⏰ Время: {selected_time}\n\n"
-            f"Пожалуйста, подтвердите вашу запись:"
+            f"⏰ Время: {selected_time}\n"
+            f"👤 Ментор: {mentor_info['name']} {mentor_info['username']}\n"
+            f"📋 Тип: {mentor_type}\n\n"
+            f"Подтвердите запись на собеседование?"
         )
         
         # Create confirmation buttons
         keyboard = [
             [
-                InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_{selected_date}_{time_slot_index}"),
-                InlineKeyboardButton("❌ Отменить", callback_data="cancel_booking")
-            ],
-            [InlineKeyboardButton("← Назад к времени", callback_data=f"date_{selected_date}")]
+                InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_{selected_date}_{mentor_id}_{time_slot_index}"),
+                InlineKeyboardButton("❌ Отменить", callback_data=f"date_{selected_date}")
+            ]
         ]
-        
+            
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.edit_message_text(text=confirmation_text, reply_markup=reply_markup, parse_mode='Markdown')
         logger.info("Confirmation sent successfully")
@@ -404,27 +791,37 @@ def handle_confirmation(update: Update, context: CallbackContext):
     try:
         query = update.callback_query
         query.answer()
-        
+    
         # Extract data from callback
         callback_data = query.data
         if not callback_data.startswith('confirm_'):
             return
-        
+    
+        # Handle mentor IDs that contain underscores (e.g., mentor_1, mentor_2)
         parts = callback_data.split('_')
-        selected_date = parts[1]
-        time_slot_index = int(parts[2])
-        selected_time = TIME_SLOTS[time_slot_index]
+        if len(parts) < 5:  # Need at least: confirm, date, mentor, id, time_slot_index
+            return
         
-        logger.info(f"Confirmation callback received: {callback_data}")
+        selected_date = parts[1]
+        # Reconstruct mentor_id from parts
+        mentor_id = f"{parts[2]}_{parts[3]}"
+        time_slot_index = int(parts[4])
+        selected_time = TIME_SLOTS[time_slot_index]
+        user = update.effective_user
+        
+        logger.info(f"Confirmation callback received: {callback_data} from user {user.id}")
         
         # Check if slot is still available
-        if not is_time_slot_available(selected_date, time_slot_index):
+        mentor_slot_key = f"{selected_date}_{mentor_id}_{time_slot_index}"
+        if mentor_slot_key in interview_bookings:
             query.edit_message_text("❌ Это время уже занято. Пожалуйста, выберите другое время.")
             return
         
+        # Get mentor info
+        mentor_info = MENTORS[mentor_id]
+        
         # Store the booking
-        user = update.effective_user
-        booking_key = f"{selected_date}_{time_slot_index}"
+        booking_key = mentor_slot_key
         
         booking_data = {
             'user_id': user.id,
@@ -436,6 +833,8 @@ def handle_confirmation(update: Update, context: CallbackContext):
             'date': selected_date,
             'time': selected_time,
             'time_slot_index': time_slot_index,
+            'mentor_id': mentor_id,
+            'mentor_name': mentor_info['name'],
             'booked_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
@@ -450,14 +849,15 @@ def handle_confirmation(update: Update, context: CallbackContext):
         
         # Send notification to admin channel
         try:
-            send_booking_log(
+            send_mentor_booking_log(
                 interview_bookings[booking_key]['user_info'],
                 selected_date,
-                selected_time
+                selected_time,
+                mentor_info['name']
             )
-            logger.info("Notification sent to private channel successfully")
+            logger.info("Mentor booking notification sent to private channel successfully")
         except Exception as e:
-            logger.error(f"Error sending notification to channel: {e}")
+            logger.error(f"Error sending mentor booking notification to channel: {e}")
         
         # Send confirmation message
         date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
@@ -514,52 +914,265 @@ def handle_back_to_dates(update: Update, context: CallbackContext):
         )
         
         query.edit_message_text(welcome_text, reply_markup=reply_markup)
+        
+        # Send outline buttons message
+        outline_keyboard = [
+            ["Мои собеседования"],
+            ["Профиль"]
+        ]
+        outline_markup = ReplyKeyboardMarkup(outline_keyboard, resize_keyboard=True, one_time_keyboard=False)
+        query.message.reply_text("", reply_markup=outline_markup)
+        
         logger.info("Back to dates sent successfully")
         
     except Exception as e:
         logger.error(f"Error in handle_back_to_dates: {e}")
-        query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_profile_callback(update: Update, context: CallbackContext):
+    """Handle profile button callback"""
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        user = update.effective_user
+        
+        # Get user's booking statistics
+        user_bookings = []
+        completed_interviews = 0
+        upcoming_interviews = 0
+        cancelled_interviews = 0
+        
+        for booking_key, booking_data in interview_bookings.items():
+            if booking_data['user_id'] == user.id:
+                user_bookings.append(booking_data)
+                
+                # Check if interview is completed (past date)
+                interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                current_date = datetime.now().date()
+                
+                if interview_date.date() < current_date:
+                    completed_interviews += 1
+                else:
+                    upcoming_interviews += 1
+        
+        # Calculate total interviews
+        total_interviews = len(user_bookings)
+        
+        # Create profile text
+        profile_text = f"👤 **Профиль пользователя**\n\n"
+        profile_text += f"**Основная информация:**\n"
+        profile_text += f"• Имя: {user.first_name}\n"
+        if user.username:
+            profile_text += f"• Username: @{user.username}\n"
+        profile_text += f"• ID: {user.id}\n"
+        profile_text += f"• Дата регистрации: {get_user_registration_date(user.id)}\n"
+        
+        # Add mentor information
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        if permanent_mentor:
+            permanent_mentor_info = MENTORS[permanent_mentor]
+            profile_text += f"• Постоянный ментор: {permanent_mentor_info['name']} {permanent_mentor_info['username']}\n"
+        else:
+            profile_text += f"• Постоянный ментор: ❌ Не выбран\n"
+        
+        profile_text += f"\n**Статистика собеседований:**\n"
+        profile_text += f"• Всего записей: {total_interviews}\n"
+        profile_text += f"• Завершенных: {completed_interviews}\n"
+        profile_text += f"• Предстоящих: {upcoming_interviews}\n"
+        profile_text += f"• Отмененных: {cancelled_interviews}\n\n"
+        
+        if upcoming_interviews > 0:
+            profile_text += f"**Ближайшие собеседования:**\n"
+            for booking in user_bookings:
+                interview_date = datetime.strptime(booking['date'], '%Y-%m-%d')
+                if interview_date.date() >= current_date:
+                    formatted_date = format_date_for_display(interview_date)
+                    profile_text += f"• {formatted_date} в {booking['time']}\n"
+        
+        if completed_interviews > 0:
+            profile_text += f"\n**Завершенные собеседования:**\n"
+            for booking in user_bookings:
+                interview_date = datetime.strptime(booking['date'], '%Y-%m-%d')
+                if interview_date.date() < current_date:
+                    formatted_date = format_date_for_display(interview_date)
+                    profile_text += f"• {formatted_date} в {booking['time']}\n"
+        
+        # Add navigation buttons
+        keyboard = [
+            [InlineKeyboardButton("📋 Мои записи", callback_data="my_bookings")],
+            [InlineKeyboardButton("📅 Записаться", callback_data="back_to_dates")]
+        ]
+        
+        # Add change mentor button for all users
+        keyboard.append([InlineKeyboardButton("🔄 Сменить основного ментора", callback_data="change_mentor")])
+        
+        keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="close_profile")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.edit_message_text(text=profile_text, reply_markup=reply_markup, parse_mode='Markdown')
+        logger.info("Profile displayed successfully")
+        
+    except Exception as e:
+        logger.error(f"Error in handle_profile_callback: {e}")
+        query.edit_message_text("Произошла ошибка при загрузке профиля.")
 
 def help_command(update: Update, context: CallbackContext):
     """Handle /help command"""
     try:
         help_text = (
             f"🤖 **Справка по боту**\n\n"
-            f"**Доступные команды:**\n"
-            f"• /start - Записаться на собеседование\n"
-            f"• /mybookings - Посмотреть ваши записи\n"
-            f"• /help - Показать эту справку\n"
-            f"• /database - Просмотр базы данных (только для админа)\n\n"
-            f"**Как записаться:**\n"
-            f"1. Используйте /start\n"
+            f"**📋 Доступные команды:**\n"
+            f"• `/start` - Записаться на собеседование\n"
+            f"• `/profile` - Посмотреть ваш профиль и статистику\n"
+            f"• `/mybookings` - Посмотреть ваши записи\n"
+            f"• `/help` - Показать эту справку\n"
+            f"• `/database` - Просмотр базы данных (только для админа)\n\n"
+            f"**🔘 Кнопки навигации:**\n"
+            f"• **Мои собеседования** - Посмотреть предстоящие собеседования с менторами\n"
+            f"• **Профиль** - Посмотреть ваш профиль и статистику\n\n"
+            f"**📅 Как записаться на собеседование:**\n"
+            f"1. Нажмите `/start` или кнопку **Мои собеседования**\n"
             f"2. Выберите удобную дату\n"
             f"3. Выберите свободное время\n"
             f"4. Подтвердите запись\n\n"
-            f"**Напоминания:**\n"
+            f"**👤 Ментор:**\n"
+            f"• У каждого студента есть постоянный ментор\n"
+            f"• Ментора можно сменить в профиле\n"
+            f"• При записи автоматически используется ваш постоянный ментор\n\n"
+            f"**⏰ Напоминания:**\n"
             f"За 1 час до собеседования вы получите автоматическое напоминание.\n\n"
-            f"**Отмена записи:**\n"
-            f"Используйте /mybookings для просмотра и отмены ваших записей."
+            f"**❌ Отмена записи:**\n"
+            f"• Нажмите кнопку **Мои собеседования**\n"
+            f"• Выберите собеседование для отмены\n"
+            f"• Нажмите кнопку **Отменить**\n\n"
+            f"**💡 Подсказка:**\n"
+            f"Используйте кнопки **Мои собеседования** и **Профиль** для быстрой навигации!"
         )
         
         update.message.reply_text(help_text, parse_mode='Markdown')
         
     except Exception as e:
         logger.error(f"Error in help_command: {e}")
-        update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+
+def profile_command(update: Update, context: CallbackContext):
+    """Handle /profile command"""
+    try:
+        user = update.effective_user
+        logger.info(f"Profile command received from user {user.id} ({user.username})")
+        
+        # Get user's booking statistics
+        user_bookings = []
+        completed_interviews = 0
+        upcoming_interviews = 0
+        cancelled_interviews = 0
+        
+        for booking_key, booking_data in interview_bookings.items():
+            if booking_data['user_id'] == user.id:
+                # Check if interview is completed (past date and time)
+                interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                current_date = datetime.now().date()
+                
+                # Check if the interview time has passed
+                is_past = False
+                if interview_date.date() < current_date:
+                    is_past = True
+                elif interview_date.date() == current_date:
+                    # Check if the specific time slot has passed
+                    time_slot_index = booking_data.get('time_slot_index', 0)
+                    if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                        is_past = True
+                
+                if is_past:
+                    completed_interviews += 1
+                    # Don't add past interviews to user_bookings list
+                else:
+                    upcoming_interviews += 1
+                    user_bookings.append(booking_data)
+        
+        # Calculate total interviews (only upcoming ones)
+        total_interviews = len(user_bookings)
+        
+        # Create profile text
+        profile_text = f"👤 **Профиль пользователя**\n\n"
+        profile_text += f"**Основная информация:**\n"
+        profile_text += f"• Имя: {user.first_name}\n"
+        if user.username:
+            profile_text += f"• Username: @{user.username}\n"
+        profile_text += f"• ID: {user.id}\n"
+        profile_text += f"• Дата регистрации: {get_user_registration_date(user.id)}\n"
+        
+        # Add mentor information
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        if permanent_mentor:
+            permanent_mentor_info = MENTORS[permanent_mentor]
+            profile_text += f"• Постоянный ментор: {permanent_mentor_info['name']} {permanent_mentor_info['username']}\n"
+            profile_text += f"• Смена ментора: {'❌ Использована' if has_used_one_time_change(user.id) else '✅ Доступна'}\n\n"
+        else:
+            profile_text += f"• Постоянный ментор: ❌ Не выбран\n"
+            profile_text += f"• Смена ментора: ❌ Недоступно\n\n"
+        
+        profile_text += f"**Статистика собеседований:**\n"
+        profile_text += f"• Всего записей: {total_interviews}\n"
+        profile_text += f"• Завершенных: {completed_interviews}\n"
+        profile_text += f"• Предстоящих: {upcoming_interviews}\n"
+        profile_text += f"• Отмененных: {cancelled_interviews}\n\n"
+        
+        if upcoming_interviews > 0:
+            profile_text += f"**Ближайшие собеседования:**\n"
+            for booking in user_bookings:
+                formatted_date = format_date_for_display(datetime.strptime(booking['date'], '%Y-%m-%d'))
+                profile_text += f"• {formatted_date} в {booking['time']}\n"
+        
+        if completed_interviews > 0:
+            profile_text += f"\n**Завершенные собеседования:**\n"
+            profile_text += f"• {completed_interviews} собеседований завершено\n"
+        
+        # Add navigation buttons
+        keyboard = [
+            [InlineKeyboardButton("📋 Мои записи", callback_data="my_bookings")],
+            [InlineKeyboardButton("📅 Записаться", callback_data="back_to_dates")]
+        ]
+        
+        # Add change mentor button if user has a permanent mentor
+        if permanent_mentor:
+            keyboard.append([InlineKeyboardButton("🔄 Сменить основного ментора", callback_data="change_mentor")])
+        
+        keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="close_profile")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(profile_text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in profile_command: {e}")
+        update.message.reply_text("Произошла ошибка при загрузке профиля.")
 
 def my_bookings(update: Update, context: CallbackContext):
     """Handle /mybookings command"""
     try:
         user = update.effective_user
-        
-        # Find user's bookings
+    
+        # Find user's bookings (only upcoming ones)
         user_bookings = []
         for booking_key, booking_data in interview_bookings.items():
             if booking_data['user_id'] == user.id:
-                user_bookings.append((booking_key, booking_data))
-        
+                # Check if the interview time has passed
+                interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                current_date = datetime.now().date()
+                
+                is_past = False
+                if interview_date.date() < current_date:
+                    is_past = True
+                elif interview_date.date() == current_date:
+                    # Check if the specific time slot has passed
+                    time_slot_index = booking_data.get('time_slot_index', 0)
+                    if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                        is_past = True
+                
+                if not is_past:
+                    user_bookings.append((booking_key, booking_data))
+    
         if not user_bookings:
-            update.message.reply_text("У вас пока нет записей на собеседование.")
+            update.message.reply_text("У вас пока нет предстоящих записей на собеседование.")
             return
         
         # Create message with user's bookings
@@ -570,7 +1183,16 @@ def my_bookings(update: Update, context: CallbackContext):
             date_obj = datetime.strptime(booking_data['date'], '%Y-%m-%d')
             formatted_date = format_date_for_display(date_obj)
             
-            bookings_text += f"📅 {formatted_date} | ⏰ {booking_data['time']}\n"
+            # Add mentor information
+            mentor_info = ""
+            if 'mentor_id' in booking_data:
+                mentor_id = booking_data['mentor_id']
+                if mentor_id in MENTORS:
+                    mentor_name = MENTORS[mentor_id]['name']
+                    mentor_username = MENTORS[mentor_id]['username']
+                    mentor_info = f" | 👤 {mentor_name} {mentor_username}"
+            
+            bookings_text += f"📅 {formatted_date} | ⏰ {booking_data['time']}{mentor_info}\n"
             
             # Add cancel button for each booking
             keyboard.append([
@@ -603,7 +1225,7 @@ def handle_cancellation(update: Update, context: CallbackContext):
         if booking_key not in interview_bookings:
             query.edit_message_text("❌ Запись не найдена.")
             return
-        
+    
         # Get booking data
         booking_data = interview_bookings[booking_key]
         user_id = booking_data['user_id']
@@ -629,23 +1251,355 @@ def handle_cancellation(update: Update, context: CallbackContext):
             logger.error(f"Error sending cancellation notification to channel: {e}")
         
         # Send confirmation message
-        date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
-        formatted_date = format_date_for_display(date_obj)
-        
-        cancellation_text = (
-            f"❌ **Запись отменена**\n\n"
-            f"📅 Дата: {formatted_date}\n"
-            f"⏰ Время: {selected_time}\n\n"
-            f"Запись успешно отменена.\n"
-            f"Используйте /start для новой записи."
-        )
-        
-        query.edit_message_text(text=cancellation_text, parse_mode='Markdown')
+        query.edit_message_text("✅ Успешно удалено")
         logger.info(f"Booking cancelled: {booking_key}")
         
     except Exception as e:
         logger.error(f"Error in handle_cancellation: {e}")
         query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_change_mentor(update: Update, context: CallbackContext):
+    """Handle mentor change request"""
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        user = update.effective_user
+        
+        # Create mentor selection buttons
+        keyboard = []
+        for mentor_id, mentor_info in MENTORS.items():
+            button_text = f"👤 {mentor_info['name']} {mentor_info['username']}"
+            callback_data = f"change_to_mentor_{mentor_id}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+        # Add back button
+        keyboard.append([InlineKeyboardButton("← Назад к профилю", callback_data="profile")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        change_text = (
+            f"🔄 **Смена основного ментора**\n\n"
+            f"Выберите нового основного ментора:"
+        )
+        
+        query.edit_message_text(text=change_text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in handle_change_mentor: {e}")
+        query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_change_to_mentor(update: Update, context: CallbackContext):
+    """Handle mentor change confirmation"""
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        # Extract mentor ID from callback data
+        callback_data = query.data
+        if not callback_data.startswith('change_to_mentor_'):
+            return
+        
+        mentor_id = callback_data.replace('change_to_mentor_', '')
+        user = update.effective_user
+        
+        logger.info(f"Mentor change callback received: {callback_data} from user {user.id}")
+        
+        # Set the user's new permanent mentor
+        set_user_permanent_mentor(user.id, mentor_id)
+        
+        # Get mentor info for display
+        mentor_info = MENTORS[mentor_id]
+        
+        # Show confirmation
+        confirmation_text = (
+            f"✅ **Ментор успешно изменен!**\n\n"
+            f"Ваш новый основной ментор:\n"
+            f"👤 {mentor_info['name']} {mentor_info['username']}\n\n"
+            f"Теперь вы можете записываться на собеседования с новым ментором."
+        )
+        
+        # Add back to profile button
+        keyboard = [[InlineKeyboardButton("👤 Назад к профилю", callback_data="profile")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        query.edit_message_text(text=confirmation_text, reply_markup=reply_markup, parse_mode='Markdown')
+        logger.info(f"Mentor changed to {mentor_id} for user {user.id}")
+        
+    except Exception as e:
+        logger.error(f"Error in handle_change_to_mentor: {e}")
+        query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_profile_navigation(update: Update, context: CallbackContext):
+    """Handle profile navigation callbacks"""
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        callback_data = query.data
+        
+        if callback_data == "my_bookings":
+            # Show user's bookings (same as "Мои собеседования")
+            user = update.effective_user
+            user_bookings = []
+            
+            for booking_key, booking_data in interview_bookings.items():
+                if booking_data['user_id'] == user.id:
+                    # Check if interview is in the past (both date and time)
+                    interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                    current_date = datetime.now().date()
+                    
+                    # Check if the interview time has passed
+                    is_past = False
+                    if interview_date.date() < current_date:
+                        is_past = True
+                    elif interview_date.date() == current_date:
+                        # Check if the specific time slot has passed
+                        time_slot_index = booking_data.get('time_slot_index', 0)
+                        if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                            is_past = True
+                    
+                    # Only add if not past
+                    if not is_past:
+                        user_bookings.append(booking_data)
+            
+            if not user_bookings:
+                response_text = (
+                    "📅 **Мои собеседования**\n\n"
+                    "У вас пока нет запланированных собеседований.\n\n"
+                    "Используйте /start для записи на собеседование!"
+                )
+                query.edit_message_text(response_text, parse_mode='Markdown')
+                return
+            
+            # Create response text with upcoming interviews
+            response_text = "📅 **Мои собеседования**\n\n"
+            
+            for booking in user_bookings:
+                date_obj = datetime.strptime(booking['date'], '%Y-%m-%d')
+                formatted_date = format_date_for_display(date_obj)
+                
+                # Get mentor info (handle missing mentor_id)
+                mentor_id = booking.get('mentor_id')
+                if mentor_id and mentor_id in MENTORS:
+                    mentor_info = MENTORS[mentor_id]
+                    mentor_text = f"{mentor_info['name']} {mentor_info['username']}"
+                else:
+                    mentor_text = "Не указан"
+                
+                response_text += (
+                    f"📅 **{formatted_date}**\n"
+                    f"⏰ Время: {booking['time']}\n"
+                    f"👤 Ментор: {mentor_text}\n\n"
+                )
+            
+            # Add cancel buttons for each booking
+            keyboard = []
+            for booking in user_bookings:
+                mentor_id = booking.get('mentor_id', 'unknown')
+                booking_key = f"{booking['date']}_{mentor_id}_{booking['time_slot_index']}"
+                button_text = f"❌ Отменить {format_date_for_display(datetime.strptime(booking['date'], '%Y-%m-%d'))} {booking['time']}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"cancel_booking_{booking_key}")])
+            
+            # Add back button
+            keyboard.append([InlineKeyboardButton("← Назад", callback_data="profile")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            query.edit_message_text(response_text, reply_markup=reply_markup, parse_mode='Markdown')
+            
+        elif callback_data == "close_profile":
+            # Close profile and return to main menu
+            welcome_text = (
+                f"Привет, {update.effective_user.first_name}! 👋\n\n"
+                f"Добро пожаловать в систему записи на собеседование!\n\n"
+                f"📅 Выберите удобную дату для собеседования:"
+            )
+            
+            # Get available dates
+            available_dates = get_available_dates()
+            
+            # Create inline keyboard with date buttons
+            keyboard = []
+            for date_str in available_dates:
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                formatted_date = format_date_for_display(date_obj)
+                callback_data = f"date_{format_date_for_callback(date_obj)}"
+                keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
+            
+            # Add profile button
+            keyboard.append([InlineKeyboardButton("👤 Мой профиль", callback_data="profile")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            query.edit_message_text(welcome_text, reply_markup=reply_markup)
+            
+    except Exception as e:
+        logger.error(f"Error in handle_profile_navigation: {e}")
+        query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_my_interviews(update: Update, context: CallbackContext):
+    """Handle 'Мои собеседования' outline button"""
+    try:
+        user = update.effective_user
+        
+        # Get user's upcoming bookings
+        user_bookings = []
+        for booking_key, booking_data in interview_bookings.items():
+            if booking_data['user_id'] == user.id:
+                # Check if interview is in the past (both date and time)
+                interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                current_date = datetime.now().date()
+                
+                # Check if the interview time has passed
+                is_past = False
+                if interview_date.date() < current_date:
+                    is_past = True
+                elif interview_date.date() == current_date:
+                    # Check if the specific time slot has passed
+                    time_slot_index = booking_data.get('time_slot_index', 0)
+                    if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                        is_past = True
+                
+                # Only add if not past
+                if not is_past:
+                    user_bookings.append(booking_data)
+        
+        if not user_bookings:
+            response_text = (
+                "📅 **Мои собеседования**\n\n"
+                "У вас пока нет запланированных собеседований.\n\n"
+                "Используйте /start для записи на собеседование!"
+            )
+            update.message.reply_text(response_text, parse_mode='Markdown')
+            return
+        
+        # Create response text with upcoming interviews
+        response_text = "📅 **Мои собеседования**\n\n"
+        
+        for booking in user_bookings:
+            date_obj = datetime.strptime(booking['date'], '%Y-%m-%d')
+            formatted_date = format_date_for_display(date_obj)
+            
+            # Get mentor info (handle missing mentor_id)
+            mentor_id = booking.get('mentor_id')
+            if mentor_id and mentor_id in MENTORS:
+                mentor_info = MENTORS[mentor_id]
+                mentor_text = f"{mentor_info['name']} {mentor_info['username']}"
+            else:
+                mentor_text = "Не указан"
+            
+            response_text += (
+                f"📅 **{formatted_date}**\n"
+                f"⏰ Время: {booking['time']}\n"
+                f"👤 Ментор: {mentor_text}\n\n"
+            )
+        
+        # Add cancel buttons for each booking
+        keyboard = []
+        for booking in user_bookings:
+            mentor_id = booking.get('mentor_id', 'unknown')
+            booking_key = f"{booking['date']}_{mentor_id}_{booking['time_slot_index']}"
+            button_text = f"❌ Отменить {format_date_for_display(datetime.strptime(booking['date'], '%Y-%m-%d'))} {booking['time']}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"cancel_booking_{booking_key}")])
+        
+        # Add back button
+        keyboard.append([InlineKeyboardButton("← Назад", callback_data="back_to_dates")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(response_text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in handle_my_interviews: {e}")
+        update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_profile_outline(update: Update, context: CallbackContext):
+    """Handle 'Профиль' outline button"""
+    try:
+        user = update.effective_user
+        
+        # Get user's booking statistics
+        user_bookings = []
+        completed_interviews = 0
+        upcoming_interviews = 0
+        cancelled_interviews = 0
+        
+        for booking_key, booking_data in interview_bookings.items():
+            if booking_data['user_id'] == user.id:
+                user_bookings.append(booking_data)
+                
+                # Check if interview is completed (past date)
+                interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                current_date = datetime.now().date()
+                
+                if interview_date.date() < current_date:
+                    completed_interviews += 1
+                else:
+                    upcoming_interviews += 1
+        
+        # Calculate total interviews
+        total_interviews = len(user_bookings)
+        
+        # Create profile text
+        profile_text = f"👤 **Профиль пользователя**\n\n"
+        profile_text += f"**Основная информация:**\n"
+        profile_text += f"• Имя: {user.first_name}\n"
+        if user.username:
+            profile_text += f"• Username: @{user.username}\n"
+        profile_text += f"• ID: {user.id}\n"
+        profile_text += f"• Дата регистрации: {get_user_registration_date(user.id)}\n"
+        
+        # Add mentor information
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        if permanent_mentor:
+            permanent_mentor_info = MENTORS[permanent_mentor]
+            profile_text += f"• Постоянный ментор: {permanent_mentor_info['name']} {permanent_mentor_info['username']}\n"
+        else:
+            profile_text += f"• Постоянный ментор: ❌ Не выбран\n"
+        
+        profile_text += f"\n**Статистика собеседований:**\n"
+        profile_text += f"• Всего записей: {total_interviews}\n"
+        profile_text += f"• Завершенных: {completed_interviews}\n"
+        profile_text += f"• Предстоящих: {upcoming_interviews}\n"
+        profile_text += f"• Отмененных: {cancelled_interviews}\n\n"
+        
+        if completed_interviews > 0:
+            profile_text += f"**Завершенные собеседования:**\n"
+            for booking in user_bookings:
+                interview_date = datetime.strptime(booking['date'], '%Y-%m-%d')
+                if interview_date.date() < current_date:
+                    formatted_date = format_date_for_display(interview_date)
+                    profile_text += f"• {formatted_date} в {booking['time']}\n"
+        
+        # Add navigation buttons
+        keyboard = []
+        keyboard.append([InlineKeyboardButton("📅 Мои записи", callback_data="my_bookings")])
+        keyboard.append([InlineKeyboardButton("🔄 Сменить ментора", callback_data="change_mentor")])
+        keyboard.append([InlineKeyboardButton("← Назад", callback_data="back_to_dates")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(profile_text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in handle_profile_outline: {e}")
+        update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_message(update: Update, context: CallbackContext):
+    """Handle text messages for outline buttons"""
+    try:
+        text = update.message.text
+        
+        if text == "Мои собеседования":
+            handle_my_interviews(update, context)
+        elif text == "Профиль":
+            handle_profile_outline(update, context)
+        elif text == "/" or text == "/help":
+            # Show help when user types just "/" or "/help"
+            help_command(update, context)
+        else:
+            # Unknown text, ignore
+            pass
+            
+    except Exception as e:
+        logger.error(f"Error in handle_message: {e}")
 
 def error_handler(update: Update, context: CallbackContext):
     """Handle errors"""
@@ -706,7 +1660,15 @@ def main():
         
         # Load existing bookings from database
         load_bookings_from_database()
-        logger.info("📊 Database loaded successfully!")
+        logger.info("📊 Bookings database loaded successfully!")
+        
+        # Load existing users from database
+        load_users_from_database()
+        logger.info("👥 Users database loaded successfully!")
+        
+        # Load existing mentors from database
+        load_mentors_from_database()
+        logger.info("👨‍🏫 Mentors database loaded successfully!")
         
         logger.info("📱 Bot is now running. Send /start to your bot to test it!")
         logger.info("📢 Notifications will be sent to your private channel!")
@@ -715,19 +1677,29 @@ def main():
         updater = Updater(keys.token, use_context=True)
         dispatcher = updater.dispatcher
         
-        # Add handlers
+        # Set up bot commands
+        setup_bot_commands(updater)
+    
+    # Add handlers
         dispatcher.add_handler(CommandHandler("start", start_command))
         dispatcher.add_handler(CommandHandler("help", help_command))
+        dispatcher.add_handler(CommandHandler("profile", profile_command))
         dispatcher.add_handler(CommandHandler("mybookings", my_bookings))
         dispatcher.add_handler(CommandHandler("database", view_database))
-        
-        # Add callback query handlers
+        dispatcher.add_handler(MessageHandler(Filters.text, handle_message)) # Add message handler for outline buttons
+    
+    # Add callback query handlers
+        dispatcher.add_handler(CallbackQueryHandler(handle_mentor_choice, pattern='^choose_mentor_'))
         dispatcher.add_handler(CallbackQueryHandler(handle_date_selection, pattern='^date_'))
         dispatcher.add_handler(CallbackQueryHandler(handle_time_selection, pattern='^time_'))
         dispatcher.add_handler(CallbackQueryHandler(handle_confirmation, pattern='^confirm_'))
         dispatcher.add_handler(CallbackQueryHandler(handle_booked_slot, pattern='^booked_slot_'))
         dispatcher.add_handler(CallbackQueryHandler(handle_cancellation, pattern='^cancel_booking_'))
         dispatcher.add_handler(CallbackQueryHandler(handle_back_to_dates, pattern='^back_to_dates$'))
+        dispatcher.add_handler(CallbackQueryHandler(handle_profile_callback, pattern='^profile$'))
+        dispatcher.add_handler(CallbackQueryHandler(handle_profile_navigation, pattern='^(my_bookings|close_profile)$'))
+        dispatcher.add_handler(CallbackQueryHandler(handle_change_mentor, pattern='^change_mentor$'))
+        dispatcher.add_handler(CallbackQueryHandler(handle_change_to_mentor, pattern='^change_to_mentor_'))
         
         # Add error handler
         dispatcher.add_error_handler(error_handler)
@@ -742,6 +1714,22 @@ def main():
         
     except Exception as e:
         logger.error(f"Error in main: {e}")
+
+def setup_bot_commands(updater):
+    """Set up bot commands that appear when user types /"""
+    commands = [
+        BotCommand("start", "Записаться на собеседование"),
+        BotCommand("profile", "Посмотреть профиль и статистику"),
+        BotCommand("mybookings", "Посмотреть ваши записи"),
+        BotCommand("help", "Показать справку по боту"),
+        BotCommand("database", "Просмотр базы данных (админ)")
+    ]
+    
+    try:
+        updater.bot.set_my_commands(commands)
+        logger.info("Bot commands set up successfully")
+    except Exception as e:
+        logger.error(f"Error setting up bot commands: {e}")
 
 if __name__ == "__main__":
     main()
