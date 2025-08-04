@@ -1,51 +1,58 @@
-# 🤖 Telegram Interview Scheduling Bot
+# Interview Scheduling Bot for Telegram
 
-A fully functional Telegram bot for scheduling interviews with automatic notifications to a private channel.
+A comprehensive Telegram bot for managing interview scheduling with automatic reminders and admin notifications.
 
-## ✨ Features
+## Features
 
-- 📅 **Smart Date Selection**: Automatically shows next 5 weekdays
-- ⏰ **Time Slot Booking**: 6 available time slots (9:00 AM - 5:00 PM)
-- 📱 **Interactive Interface**: Inline keyboards for easy navigation
-- 🔔 **Channel Notifications**: Automatic notifications to private channel
-- 📋 **Booking Management**: View and manage existing bookings
-- 🛡️ **Error Handling**: Robust error handling and logging
-- 📊 **Detailed Logging**: Comprehensive logging for debugging
+- 📅 **Date Selection**: Choose from available weekdays (Monday-Friday)
+- ⏰ **Time Slots**: 6 time slots per day (9:00-17:00 with lunch break)
+- 🔔 **Automatic Reminders**: Get notified 1 hour before your interview
+- 📢 **Admin Notifications**: All bookings sent to private admin channel
+- ❌ **Booking Cancellation**: Cancel your bookings anytime
+- 🚫 **Conflict Prevention**: No double bookings for the same time slot
+- 🇷🇺 **Russian Interface**: Full Russian language support
+- 🕐 **Moscow Timezone**: Configured for Moscow time (UTC+3)
 
-## 🚀 Quick Start
+## Files Structure
 
-### 1. Prerequisites
+```
+prost_test/
+├── interview_bot.py          # Main bot application
+├── notification_sender.py    # Admin channel notifications
+├── keys.py                   # Bot token (not in git)
+├── keys_template.py          # Template for keys.py
+├── requirements.txt          # Python dependencies
+├── README.md                 # This file
+└── .gitignore               # Git ignore rules
+```
 
-- Python 3.7+
-- Telegram Bot Token (get from [@BotFather](https://t.me/BotFather))
-- A private Telegram channel for notifications
+## Setup Instructions
 
-### 2. Installation
+### 1. Install Dependencies
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd prost_test
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Configuration
+### 2. Configure Bot Token
 
-1. **Set up your bot token:**
-   ```bash
-   # Copy the template
-   cp keys_template.py keys.py
-   
-   # Edit keys.py and add your bot token
-   # Replace 'YOUR_BOT_TOKEN_HERE' with your actual token
-   ```
+1. Copy `keys_template.py` to `keys.py`
+2. Replace `YOUR_BOT_TOKEN_HERE` with your actual bot token from @BotFather
 
-2. **Configure your notification channel:**
-   - Edit `notification_sender.py`
-   - Change `CHANNEL_ID = "@ddd999dd999"` to your channel
-   - Add your bot as admin to the channel with "Send Messages" permission
+```python
+# keys.py
+token = '1234567890:ABCdefGHIjklMNOpqrsTUVwxyz'
+```
+
+### 3. Configure Admin Channel
+
+1. Create a private Telegram channel
+2. Add your bot as an admin with "Send Messages" permission
+3. Update `CHANNEL_ID` in `notification_sender.py`:
+
+```python
+CHANNEL_ID = "@your_channel_username"
+```
 
 ### 4. Run the Bot
 
@@ -53,133 +60,108 @@ pip install -r requirements.txt
 python interview_bot.py
 ```
 
-## 📁 Project Structure
+## Bot Commands
 
-```
-prost_test/
-├── interview_bot.py          # Main bot application
-├── notification_sender.py    # Channel notification system
-├── keys.py                   # Bot token (create from template)
-├── keys_template.py          # Template for bot token
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-├── .gitignore               # Git ignore rules
-├── test_channel.py          # Channel connection test
-└── test_notification.py     # Notification system test
-```
-
-## 🎯 Bot Commands
-
-- `/start` - Start the interview scheduling process
+- `/start` - Start booking process
 - `/help` - Show help information
-- `/mybookings` - View your current bookings
+- `/mybookings` - View and cancel your bookings
 
-## 📱 User Flow
+## How It Works
 
-1. **User sends `/start`**
-2. **Bot shows 5 available weekdays** (Monday-Friday)
-3. **User selects a date**
-4. **Bot shows 6 time slots** (9:00-17:00 with lunch break)
-5. **User selects a time**
-6. **Bot shows booking confirmation**
-7. **User confirms booking**
-8. **Bot stores booking and sends notification to channel**
+### For Students:
+1. Send `/start` to begin booking
+2. Select a date from available weekdays
+3. Choose an available time slot
+4. Confirm your booking
+5. Receive reminder 1 hour before interview
 
-## 🔔 Channel Notifications
+### For Admins:
+- All bookings are automatically logged to your private channel
+- Cancellations are also notified
+- Reminder notifications show when reminders are sent to students
 
-When a booking is made, the bot sends a notification to your configured channel:
+## Time Slots
 
+- **Morning**: 09:00-10:00, 10:00-11:00, 11:00-12:00
+- **Afternoon**: 14:00-15:00, 15:00-16:00, 16:00-17:00
+
+## Reminder System
+
+- Reminders are sent 1 hour before the interview start time
+- Uses Moscow timezone (UTC+3)
+- Both student and admin receive notifications
+
+## Booking Conflict Prevention
+
+- Real-time availability checking
+- Visual indicators for booked/available slots
+- Prevents double bookings for the same time slot
+
+## Dependencies
+
+- `python-telegram-bot==13.3` - Telegram Bot API
+- `APScheduler==3.6.3` - Background task scheduling
+- `pytz` - Timezone handling
+
+## Configuration
+
+### Timezone
+The bot is configured for Moscow time (UTC+3). To change timezone:
+
+1. Update scheduler initialization in `interview_bot.py`:
+```python
+scheduler = BackgroundScheduler(timezone=pytz.timezone('Your/Timezone'))
 ```
-📅 **New Interview Booking**
 
-👤 **User:** @username
-📅 **Date:** 05.08 Tuesday
-⏰ **Time:** 10:00 - 11:00
-🆔 **User ID:** 123456789
-📝 **Booked at:** 04.08.2025 00:25:26
-```
-
-## 🛠️ Development
-
-### Testing
-
-```bash
-# Test channel connection
-python test_channel.py
-
-# Test notification system
-python test_notification.py
-
-# Test notification sender
-python notification_sender.py
-```
-
-### Logging
-
-The bot uses detailed logging with DEBUG level. Check the console output for:
-- User interactions
-- Booking confirmations
-- Channel notifications
-- Error messages
-
-## 🔧 Configuration Options
+2. Update reminder scheduling in `schedule_reminder()` function
 
 ### Time Slots
-Edit the `time_slots` list in `interview_bot.py`:
-```python
-time_slots = [
-    "09:00 - 10:00",
-    "10:00 - 11:00", 
-    "11:00 - 12:00",
-    "14:00 - 15:00",
-    "15:00 - 16:00",
-    "16:00 - 17:00"
-]
-```
+Modify `TIME_SLOTS` list in `interview_bot.py` to change available times.
 
-### Available Days
-The bot automatically shows the next 5 weekdays. This is calculated in the `get_available_dates()` function.
+### Channel Notifications
+Update `CHANNEL_ID` in `notification_sender.py` to change admin channel.
 
-### Channel ID
-Change the channel ID in `notification_sender.py`:
-```python
-CHANNEL_ID = "@your_channel_username"
-```
+## Troubleshooting
 
-## 🚨 Security Notes
+### Bot Not Responding
+1. Check if bot token is correct in `keys.py`
+2. Ensure bot is not blocked by users
+3. Check logs for error messages
 
-- **Never commit `keys.py`** - it contains your bot token
-- **Use `.gitignore`** - it's configured to exclude sensitive files
-- **Keep your bot token private** - anyone with the token can control your bot
+### Channel Notifications Not Working
+1. Verify bot is admin in the channel
+2. Check bot has "Send Messages" permission
+3. Ensure channel ID is correct (include @ symbol)
 
-## 📝 Dependencies
+### Reminders Not Sending
+1. Check timezone configuration
+2. Verify APScheduler is running
+3. Check logs for scheduling errors
 
-- `python-telegram-bot==13.3` - Telegram Bot API wrapper
-- `asyncio` - Asynchronous programming support
-- `datetime` - Date and time handling
-- `logging` - Logging system
+## Security Notes
 
-## 🤝 Contributing
+- Never commit `keys.py` to version control
+- Keep your bot token secure
+- Regularly update dependencies
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+## Development
 
-## 📄 License
+### Adding New Features
+1. Create feature branch: `git checkout -b feature-name`
+2. Implement changes
+3. Test thoroughly
+4. Create pull request
 
-This project is open source and available under the [MIT License](LICENSE).
+### Testing
+- Test booking flow with multiple users
+- Verify reminder scheduling
+- Check admin notifications
+- Test cancellation functionality
 
-## 🆘 Support
+## License
 
-If you encounter any issues:
+This project is for educational and personal use.
 
-1. Check the console logs for error messages
-2. Verify your bot token is correct
-3. Ensure your bot is added to the channel as admin
-4. Test the channel connection with `python test_channel.py`
+## Support
 
-## 🎉 Success!
-
-Your interview scheduling bot is now ready to help students book interviews efficiently! 🚀 
+For issues or questions, check the logs or review the code comments for debugging information. 

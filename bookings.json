@@ -1,0 +1,38 @@
+{
+  "2025-08-04_4": {
+    "user_id": 780202036,
+    "user_info": {
+      "id": 780202036,
+      "username": "yashonflame",
+      "first_name": "finesse"
+    },
+    "date": "2025-08-04",
+    "time": "13:00 - 14:00",
+    "time_slot_index": 4,
+    "booked_at": "2025-08-04 12:39:40"
+  },
+  "2025-08-04_5": {
+    "user_id": 780202036,
+    "user_info": {
+      "id": 780202036,
+      "username": "yashonflame",
+      "first_name": "finesse"
+    },
+    "date": "2025-08-04",
+    "time": "14:00 - 15:00",
+    "time_slot_index": 5,
+    "booked_at": "2025-08-04 12:43:47"
+  },
+  "2025-08-05_3": {
+    "user_id": 1123649638,
+    "user_info": {
+      "id": 1123649638,
+      "username": "not_a_real_gypsy_crusader",
+      "first_name": "Gypsy"
+    },
+    "date": "2025-08-05",
+    "time": "12:00 - 13:00",
+    "time_slot_index": 3,
+    "booked_at": "2025-08-04 12:55:04"
+  }
+}

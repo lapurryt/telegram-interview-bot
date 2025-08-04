@@ -1,2 +1,4 @@
-python-telegram-bot==20.7
-asyncio 
+python-telegram-bot==13.3
+asyncio
+APScheduler==3.6.3
+pytz 
