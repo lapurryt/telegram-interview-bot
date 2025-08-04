@@ -5,7 +5,8 @@
     "first_name": "finesse",
     "last_name": null,
     "registration_date": "2025-08-04 13:20:31",
-    "first_interaction": "2025-08-04 13:20:31"
+    "first_interaction": "2025-08-04 13:20:31",
+    "total_bookings_made": 3
   },
   "887557370": {
     "user_id": 887557370,
@@ -37,7 +38,8 @@
     "first_name": "goja",
     "last_name": null,
     "registration_date": "2025-08-04 14:36:01",
-    "first_interaction": "2025-08-04 14:36:01"
+    "first_interaction": "2025-08-04 14:36:01",
+    "total_bookings_made": 1
   },
   "1764401945": {
     "user_id": 1764401945,

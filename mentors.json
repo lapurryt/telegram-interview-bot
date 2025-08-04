@@ -1,10 +1,10 @@
 {
   "780202036": {
-    "permanent_mentor": "mentor_2",
+    "permanent_mentor": "mentor_1",
     "used_one_time_change": true
   },
   "5774466022": {
-    "permanent_mentor": "mentor_1",
+    "permanent_mentor": "mentor_2",
     "used_one_time_change": false
   },
   "1764401945": {
@@ -16,5 +16,12 @@
   },
   "6608563451": {
     "permanent_mentor": "mentor_1"
+  },
+  "887557370": {
+    "permanent_mentor": "mentor_2",
+    "used_one_time_change": false
+  },
+  "7900814468": {
+    "permanent_mentor": "mentor_2"
   }
 }
