@@ -1,167 +1,225 @@
-# Interview Scheduling Bot for Telegram
+# 🤖 Telegram Interview Scheduling Bot
 
-A comprehensive Telegram bot for managing interview scheduling with automatic reminders and admin notifications.
+A comprehensive Telegram bot for managing interview scheduling between students and mentors. Built with Python and the `python-telegram-bot` library.
 
-## Features
+## ✨ Features
 
-- 📅 **Date Selection**: Choose from available weekdays (Monday-Friday)
-- ⏰ **Time Slots**: 6 time slots per day (9:00-17:00 with lunch break)
-- 🔔 **Automatic Reminders**: Get notified 1 hour before your interview
-- 📢 **Admin Notifications**: All bookings sent to private admin channel
-- ❌ **Booking Cancellation**: Cancel your bookings anytime
-- 🚫 **Conflict Prevention**: No double bookings for the same time slot
-- 🇷🇺 **Russian Interface**: Full Russian language support
-- 🕐 **Moscow Timezone**: Configured for Moscow time (UTC+3)
+### 🎯 Core Functionality
+- **Smart Booking System**: Students can book interviews with their assigned mentors
+- **Duration Selection**: Support for 1-hour and 1.5-2 hour interview slots
+- **Automatic Reminders**: 1-hour advance notifications for scheduled interviews
+- **Mentor Assignment**: Permanent mentor system with unlimited changes
+- **Real-time Availability**: Dynamic time slot management
 
-## Files Structure
+### 🔔 Notifications
+- **Student → Mentor**: Notifications when students book interviews
+- **Mentor → Student**: Notifications when mentors cancel interviews
+- **Admin Channel**: All booking activities logged to private channel
+- **Automatic Reminders**: Scheduled notifications before interviews
 
-```
-prost_test/
-├── interview_bot.py          # Main bot application
-├── notification_sender.py    # Admin channel notifications
-├── keys.py                   # Bot token (not in git)
-├── keys_template.py          # Template for keys.py
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-└── .gitignore               # Git ignore rules
-```
+### 👥 User Management
+- **Role-based Views**: Different interfaces for students and mentors
+- **Profile System**: User statistics and booking history
+- **Mentor Detection**: Automatic role recognition for mentors
+- **Statistics Tracking**: Total bookings, upcoming, and cancelled interviews
 
-## Setup Instructions
+### 📱 User Interface
+- **Outline Buttons**: "Мои собеседования" and "Профиль" for easy navigation
+- **Inline Keyboards**: Interactive booking and management interface
+- **Command Suggestions**: Auto-complete when typing "/"
+- **Responsive Design**: Works on all Telegram clients
 
-### 1. Install Dependencies
+## 🛠️ Technical Stack
+
+- **Language**: Python 3.8+
+- **Telegram API**: python-telegram-bot
+- **Scheduler**: APScheduler with Moscow timezone
+- **Database**: JSON-based storage (users.json, bookings.json, mentors.json)
+- **Notifications**: Custom notification system
+
+## 📋 Requirements
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure Bot Token
+### Key Dependencies
+- `python-telegram-bot==13.7`
+- `APScheduler==3.9.1`
+- `pytz==2021.3`
 
-1. Copy `keys_template.py` to `keys.py`
-2. Replace `YOUR_BOT_TOKEN_HERE` with your actual bot token from @BotFather
+## ⚙️ Configuration
 
+### 1. Bot Token Setup
+Create a `keys.py` file with your Telegram bot token:
 ```python
-# keys.py
-token = '1234567890:ABCdefGHIjklMNOpqrsTUVwxyz'
+BOT_TOKEN = "your_bot_token_here"
+ADMIN_CHANNEL_ID = "@your_channel_username"
 ```
 
-### 3. Configure Admin Channel
-
-1. Create a private Telegram channel
-2. Add your bot as an admin with "Send Messages" permission
-3. Update `CHANNEL_ID` in `notification_sender.py`:
-
+### 2. Mentor Configuration
+Configure mentors in `interview_bot.py`:
 ```python
-CHANNEL_ID = "@your_channel_username"
+MENTORS = {
+    "mentor_1": {
+        "name": "Илья",
+        "username": "@yashonflame",
+        "user_id": 780202036,
+        "max_students": 5,
+        "specialization": "Full Stack Development"
+    }
+}
 ```
 
-### 4. Run the Bot
-
-```bash
-python interview_bot.py
+### 3. Time Slots
+Customize available time slots:
+```python
+TIME_SLOTS = [
+    "09:00 - 10:00",
+    "10:00 - 11:00",
+    "11:00 - 12:00",
+    # ... add more slots
+]
 ```
 
-## Bot Commands
+## 🚀 Installation & Setup
 
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/lapurryt/prost_test.git
+   cd prost_test
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Configure your bot**:
+   - Create `keys.py` with your bot token
+   - Update mentor configurations
+   - Set up admin channel
+
+4. **Run the bot**:
+   ```bash
+   python interview_bot.py
+   ```
+
+## 📊 Database Structure
+
+### Users Database (`users.json`)
+```json
+{
+  "user_id": {
+    "user_id": 123456789,
+    "username": "@username",
+    "first_name": "Name",
+    "registration_date": "2025-08-04 20:30:00",
+    "total_bookings_made": 5
+  }
+}
+```
+
+### Bookings Database (`bookings.json`)
+```json
+{
+  "date_mentor_id_slot": {
+    "user_id": 123456789,
+    "date": "2025-08-05",
+    "time": "09:00 - 10:00",
+    "mentor_id": "mentor_1",
+    "duration": "1h",
+    "booked_at": "2025-08-04 20:30:00"
+  }
+}
+```
+
+### Mentors Database (`mentors.json`)
+```json
+{
+  "user_id": {
+    "permanent_mentor": "mentor_1"
+  }
+}
+```
+
+## 🎮 Usage
+
+### For Students
+1. **Start the bot**: `/start`
+2. **Choose mentor**: Select your permanent mentor
+3. **Book interview**: Pick date, time, and duration
+4. **Manage bookings**: Use "Мои собеседования" button
+5. **View profile**: Check statistics and change mentor
+
+### For Mentors
+1. **View interviews**: "Мои собеседования" shows waiting students
+2. **Cancel interviews**: Remove bookings with student notifications
+3. **Receive notifications**: Get alerts when students book
+
+### Commands
 - `/start` - Start booking process
+- `/profile` - View user profile and statistics
+- `/mybookings` - View current bookings
 - `/help` - Show help information
-- `/mybookings` - View and cancel your bookings
 
-## How It Works
+## 🔧 Customization
 
-### For Students:
-1. Send `/start` to begin booking
-2. Select a date from available weekdays
-3. Choose an available time slot
-4. Confirm your booking
-5. Receive reminder 1 hour before interview
+### Adding New Mentors
+1. Update `MENTORS` dictionary in `interview_bot.py`
+2. Add mentor information and user_id
+3. Restart the bot
 
-### For Admins:
-- All bookings are automatically logged to your private channel
-- Cancellations are also notified
-- Reminder notifications show when reminders are sent to students
+### Modifying Time Slots
+1. Edit `TIME_SLOTS` array in `interview_bot.py`
+2. Adjust available hours as needed
+3. Restart the bot
 
-## Time Slots
+### Changing Timezone
+1. Update timezone in scheduler initialization
+2. Modify `pytz.timezone('Europe/Moscow')` to your timezone
 
-- **Morning**: 09:00-10:00, 10:00-11:00, 11:00-12:00
-- **Afternoon**: 14:00-15:00, 15:00-16:00, 16:00-17:00
+## 🛡️ Security Features
 
-## Reminder System
+- **Token Protection**: Bot tokens stored in separate `keys.py` file
+- **User Validation**: All user inputs validated and sanitized
+- **Role-based Access**: Different permissions for students and mentors
+- **Database Backup**: JSON files can be easily backed up
 
-- Reminders are sent 1 hour before the interview start time
-- Uses Moscow timezone (UTC+3)
-- Both student and admin receive notifications
+## 📈 Statistics System
 
-## Booking Conflict Prevention
+The bot tracks comprehensive statistics:
+- **Total Bookings**: All bookings ever made (never decreases)
+- **Upcoming Interviews**: Current active bookings
+- **Cancelled Interviews**: Calculated as total - upcoming
 
-- Real-time availability checking
-- Visual indicators for booked/available slots
-- Prevents double bookings for the same time slot
+## 🤝 Contributing
 
-## Dependencies
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-- `python-telegram-bot==13.3` - Telegram Bot API
-- `APScheduler==3.6.3` - Background task scheduling
-- `pytz` - Timezone handling
+## 📝 License
 
-## Configuration
+This project is open source and available under the [MIT License](LICENSE).
 
-### Timezone
-The bot is configured for Moscow time (UTC+3). To change timezone:
+## 🆘 Support
 
-1. Update scheduler initialization in `interview_bot.py`:
-```python
-scheduler = BackgroundScheduler(timezone=pytz.timezone('Your/Timezone'))
-```
+For issues and questions:
+- Create an issue on GitHub
+- Check the logs for error details
+- Ensure all dependencies are installed
 
-2. Update reminder scheduling in `schedule_reminder()` function
+## 🔄 Recent Updates
 
-### Time Slots
-Modify `TIME_SLOTS` list in `interview_bot.py` to change available times.
+- ✅ Fixed statistics calculation
+- ✅ Added outline buttons for navigation
+- ✅ Implemented mentor notifications
+- ✅ Added 2-hour booking support
+- ✅ Enhanced user experience with better UI
 
-### Channel Notifications
-Update `CHANNEL_ID` in `notification_sender.py` to change admin channel.
+---
 
-## Troubleshooting
-
-### Bot Not Responding
-1. Check if bot token is correct in `keys.py`
-2. Ensure bot is not blocked by users
-3. Check logs for error messages
-
-### Channel Notifications Not Working
-1. Verify bot is admin in the channel
-2. Check bot has "Send Messages" permission
-3. Ensure channel ID is correct (include @ symbol)
-
-### Reminders Not Sending
-1. Check timezone configuration
-2. Verify APScheduler is running
-3. Check logs for scheduling errors
-
-## Security Notes
-
-- Never commit `keys.py` to version control
-- Keep your bot token secure
-- Regularly update dependencies
-
-## Development
-
-### Adding New Features
-1. Create feature branch: `git checkout -b feature-name`
-2. Implement changes
-3. Test thoroughly
-4. Create pull request
-
-### Testing
-- Test booking flow with multiple users
-- Verify reminder scheduling
-- Check admin notifications
-- Test cancellation functionality
-
-## License
-
-This project is for educational and personal use.
-
-## Support
-
-For issues or questions, check the logs or review the code comments for debugging information. 
+**Built with ❤️ for efficient interview scheduling** 
