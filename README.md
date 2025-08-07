@@ -6,6 +6,7 @@ A comprehensive Telegram bot for managing interview scheduling between students 
 
 ### 🎯 Core Functionality
 - **Smart Booking System**: Students can book interviews with their assigned mentors
+- **Company Information**: Collects company name during booking process
 - **Duration Selection**: Support for 1-hour and 1.5-2 hour interview slots
 - **Automatic Reminders**: 1-hour advance notifications for scheduled interviews
 - **Mentor Assignment**: Permanent mentor system with unlimited changes
@@ -28,6 +29,8 @@ A comprehensive Telegram bot for managing interview scheduling between students 
 - **Inline Keyboards**: Interactive booking and management interface
 - **Command Suggestions**: Auto-complete when typing "/"
 - **Responsive Design**: Works on all Telegram clients
+
+
 
 ## 🛠️ Technical Stack
 
@@ -129,6 +132,7 @@ TIME_SLOTS = [
     "time": "09:00 - 10:00",
     "mentor_id": "mentor_1",
     "duration": "1h",
+    "company": "Company Name",
     "booked_at": "2025-08-04 20:30:00"
   }
 }
@@ -162,6 +166,9 @@ TIME_SLOTS = [
 - `/profile` - View user profile and statistics
 - `/mybookings` - View current bookings
 - `/help` - Show help information
+- `/all <text>` - Send broadcast message to all users (admin only)
+
+
 
 ## 🔧 Customization
 
@@ -214,6 +221,9 @@ For issues and questions:
 
 ## 🔄 Recent Updates
 
+- ✅ **Broadcast System**: Added `/all` command for admin to send messages to all users
+- ✅ **Company Information Collection**: Added company name collection during booking process
+- ✅ **Simple Chronological Sorting**: All interviews sorted by date and time in ascending order
 - ✅ Fixed statistics calculation
 - ✅ Added outline buttons for navigation
 - ✅ Implemented mentor notifications

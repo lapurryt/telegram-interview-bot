@@ -164,7 +164,7 @@ def send_reminder_log(user_info, selected_date, selected_time):
         if loop:
             loop.close()
 
-def send_mentor_booking_log(user_info, selected_date, selected_time, mentor_name):
+def send_mentor_booking_log(user_info, selected_date, selected_time, mentor_name, company_name="Не указана"):
     """Function to send mentor booking notification (synchronous wrapper)"""
     try:
         # Run the async function in a new event loop
@@ -194,6 +194,7 @@ def send_mentor_booking_log(user_info, selected_date, selected_time, mentor_name
             f"📅 **Date:** {formatted_date}\n"
             f"⏰ **Time:** {selected_time}\n"
             f"👨‍🏫 **Mentor:** {mentor_name}\n"
+            f"🏢 **Company:** {company_name}\n"
             f"🆔 **User ID:** {user_info.get('id', 'Unknown')}\n"
             f"📝 **Booked at:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
         )

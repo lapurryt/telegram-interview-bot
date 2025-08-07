@@ -6,7 +6,7 @@
     "last_name": null,
     "registration_date": "2025-08-04 13:20:31",
     "first_interaction": "2025-08-04 13:20:31",
-    "total_bookings_made": 3
+    "total_bookings_made": 11
   },
   "887557370": {
     "user_id": 887557370,
@@ -30,7 +30,8 @@
     "first_name": "Никита",
     "last_name": null,
     "registration_date": "2025-08-04 13:24:17",
-    "first_interaction": "2025-08-04 13:24:17"
+    "first_interaction": "2025-08-04 13:24:17",
+    "total_bookings_made": 2
   },
   "5774466022": {
     "user_id": 5774466022,
@@ -39,7 +40,7 @@
     "last_name": null,
     "registration_date": "2025-08-04 14:36:01",
     "first_interaction": "2025-08-04 14:36:01",
-    "total_bookings_made": 1
+    "total_bookings_made": 5
   },
   "1764401945": {
     "user_id": 1764401945,
@@ -55,7 +56,8 @@
     "first_name": "Валерия",
     "last_name": null,
     "registration_date": "2025-08-04 18:13:09",
-    "first_interaction": "2025-08-04 18:13:09"
+    "first_interaction": "2025-08-04 18:13:09",
+    "total_bookings_made": 3
   },
   "6608563451": {
     "user_id": 6608563451,
@@ -63,6 +65,16 @@
     "first_name": "sopso",
     "last_name": null,
     "registration_date": "2025-08-04 18:28:47",
-    "first_interaction": "2025-08-04 18:28:47"
+    "first_interaction": "2025-08-04 18:28:47",
+    "total_bookings_made": 2
+  },
+  "1123649638": {
+    "user_id": 1123649638,
+    "username": "not_a_real_gypsy_crusader",
+    "first_name": "Gypsy",
+    "last_name": "Crusader",
+    "registration_date": "2025-08-06 23:44:12",
+    "first_interaction": "2025-08-06 23:44:12",
+    "total_bookings_made": 0
   }
 }

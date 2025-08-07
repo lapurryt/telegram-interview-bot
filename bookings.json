@@ -144,5 +144,106 @@
       5
     ],
     "booked_at": "2025-08-04 20:22:19"
+  },
+  "2025-08-05_mentor_1_6": {
+    "user_id": 5774466022,
+    "user_info": {
+      "id": 5774466022,
+      "username": "ktoniepush",
+      "first_name": "goja"
+    },
+    "date": "2025-08-05",
+    "time": "15:00 - 16:00",
+    "time_slot_index": 6,
+    "mentor_id": "mentor_1",
+    "mentor_name": "Илья",
+    "duration": "1h",
+    "booked_at": "2025-08-05 13:52:18"
+  },
+  "2025-08-08_mentor_2_3": {
+    "user_id": 7900814468,
+    "user_info": {
+      "id": 7900814468,
+      "username": "GolubovNAi",
+      "first_name": "Никита"
+    },
+    "date": "2025-08-08",
+    "time": "12:00 - 13:00",
+    "time_slot_index": 3,
+    "mentor_id": "mentor_2",
+    "mentor_name": "Андрей",
+    "duration": "1h",
+    "booked_at": "2025-08-06 12:37:05"
+  },
+  "2025-08-08_mentor_2_5": {
+    "user_id": 7900814468,
+    "user_info": {
+      "id": 7900814468,
+      "username": "GolubovNAi",
+      "first_name": "Никита"
+    },
+    "date": "2025-08-08",
+    "time": "14:00 - 15:00",
+    "time_slot_index": 5,
+    "mentor_id": "mentor_2",
+    "mentor_name": "Андрей",
+    "duration": "1h",
+    "booked_at": "2025-08-06 12:37:15"
+  },
+  "2025-08-08_mentor_1_5": {
+    "user_id": 7897655514,
+    "user_info": {
+      "id": 7897655514,
+      "username": "vmgwork",
+      "first_name": "Валерия"
+    },
+    "date": "2025-08-08",
+    "time": "14:00 - 15:00",
+    "time_slot_index": 5,
+    "mentor_id": "mentor_1",
+    "mentor_name": "Илья",
+    "duration": "1h",
+    "company": "НГМТЕХ",
+    "booked_at": "2025-08-07 11:42:56"
+  },
+  "2025-08-07_mentor_1_3_2h": {
+    "user_id": 6608563451,
+    "user_info": {
+      "id": 6608563451,
+      "username": "zzzerkkki",
+      "first_name": "sopso"
+    },
+    "date": "2025-08-07",
+    "time": "12:00 - 14:00",
+    "time_slot_index": 3,
+    "mentor_id": "mentor_1",
+    "mentor_name": "Илья",
+    "duration": "2h",
+    "company": "Company СЭКС",
+    "booked_slots": [
+      3,
+      4
+    ],
+    "booked_at": "2025-08-07 11:47:40"
+  },
+  "2025-08-07_mentor_1_6_2h": {
+    "user_id": 6608563451,
+    "user_info": {
+      "id": 6608563451,
+      "username": "zzzerkkki",
+      "first_name": "sopso"
+    },
+    "date": "2025-08-07",
+    "time": "15:00 - 17:00",
+    "time_slot_index": 6,
+    "mentor_id": "mentor_1",
+    "mentor_name": "Илья",
+    "duration": "2h",
+    "company": "Илья я хочу тебя",
+    "booked_slots": [
+      6,
+      7
+    ],
+    "booked_at": "2025-08-07 11:50:01"
   }
 }
