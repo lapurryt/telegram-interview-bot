@@ -6,7 +6,7 @@
     "last_name": null,
     "registration_date": "2025-08-04 13:20:31",
     "first_interaction": "2025-08-04 13:20:31",
-    "total_bookings_made": 11
+    "total_bookings_made": 29
   },
   "887557370": {
     "user_id": 887557370,
@@ -40,7 +40,7 @@
     "last_name": null,
     "registration_date": "2025-08-04 14:36:01",
     "first_interaction": "2025-08-04 14:36:01",
-    "total_bookings_made": 5
+    "total_bookings_made": 6
   },
   "1764401945": {
     "user_id": 1764401945,
@@ -57,7 +57,7 @@
     "last_name": null,
     "registration_date": "2025-08-04 18:13:09",
     "first_interaction": "2025-08-04 18:13:09",
-    "total_bookings_made": 3
+    "total_bookings_made": 8
   },
   "6608563451": {
     "user_id": 6608563451,
@@ -66,7 +66,7 @@
     "last_name": null,
     "registration_date": "2025-08-04 18:28:47",
     "first_interaction": "2025-08-04 18:28:47",
-    "total_bookings_made": 2
+    "total_bookings_made": 3
   },
   "1123649638": {
     "user_id": 1123649638,
@@ -76,5 +76,14 @@
     "registration_date": "2025-08-06 23:44:12",
     "first_interaction": "2025-08-06 23:44:12",
     "total_bookings_made": 0
+  },
+  "709758657": {
+    "user_id": 709758657,
+    "username": "parkhominap",
+    "first_name": "Полиша",
+    "last_name": null,
+    "registration_date": "2025-08-07 13:24:00",
+    "first_interaction": "2025-08-07 13:24:00",
+    "total_bookings_made": 1
   }
 }

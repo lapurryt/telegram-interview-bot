@@ -1,6 +1,9 @@
-# Bot token - replace with your actual token from @BotFather
-# Get your token by messaging @BotFather on Telegram
-token = 'YOUR_BOT_TOKEN_HERE'
+# Template for bot configuration
+# Copy this file to keys.py and fill in your actual values
 
-# Example:
-# token = '1234567890:ABCdefGHIjklMNOpqrsTUVwxyz' 
+# Telegram Bot Token (get from @BotFather)
+token = "YOUR_BOT_TOKEN_HERE"
+
+# For deployment, you can also use environment variables:
+# import os
+# token = os.getenv('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE') 

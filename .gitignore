@@ -1,3 +1,8 @@
+# Sensitive files
+keys.py
+*.env
+.env
+
 # Python
 __pycache__/
 *.py[cod]
@@ -21,7 +26,7 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual Environment
+# Virtual environments
 venv/
 env/
 ENV/
@@ -44,21 +49,13 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Bot specific - SENSITIVE FILES
-keys.py
-*.env
-.env
-config.py
-secrets.py
-
-# Database files (optional - you might want to keep these for backup)
-# users.json
-# bookings.json
-# mentors.json
-
 # Logs
 *.log
 logs/
+
+# Database backups (optional - remove if you want to track them)
+*.json.backup
+*.json.bak
 
 # Temporary files
 *.tmp

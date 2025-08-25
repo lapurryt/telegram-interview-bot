@@ -305,13 +305,13 @@ def remove_booking_from_database(booking_key):
 def send_reminder_to_user(user_id, interview_date, interview_time):
     """Send reminder to user about upcoming interview"""
     try:
-        # Create bot instance for sending message
-        updater = Updater(keys.token, use_context=True)
-        bot = updater.bot
+        # Use the global bot instance instead of creating a new one
+        from telegram import Bot
+        bot = Bot(token=keys.token)
         
         # Format the reminder message
         date_obj = datetime.strptime(interview_date, '%Y-%m-%d')
-        formatted_date = format_date_for_display(date_obj)
+        formatted_date = format_date_for_display(date_obj, False)
         
         reminder_text = (
             f"🔔 **Напоминание о собеседовании!**\n\n"
@@ -324,23 +324,36 @@ def send_reminder_to_user(user_id, interview_date, interview_time):
             f"Удачи! 🍀"
         )
         
-        bot.send_message(
-            chat_id=user_id,
-            text=reminder_text,
-            parse_mode='Markdown'
-        )
-        
-        logger.info(f"Reminder sent to user {user_id} for interview on {interview_date} at {interview_time}")
+        # Send message with better error handling
+        try:
+            bot.send_message(
+                chat_id=user_id,
+                text=reminder_text,
+                parse_mode='Markdown'
+            )
+            logger.info(f"Reminder sent to user {user_id} for interview on {interview_date} at {interview_time}")
+        except Exception as send_error:
+            logger.error(f"Failed to send reminder to user {user_id}: {send_error}")
+            # Try to send without markdown if markdown fails
+            try:
+                bot.send_message(
+                    chat_id=user_id,
+                    text=reminder_text.replace('**', '').replace('*', '')
+                )
+                logger.info(f"Reminder sent to user {user_id} without markdown")
+            except Exception as fallback_error:
+                logger.error(f"Failed to send reminder to user {user_id} even without markdown: {fallback_error}")
+                return False
         
         # Send notification to admin channel
         try:
-            # Get user info from interview_bookings
+            # Get user info from interview_bookings with better search
             user_info = None
             for booking_key, booking_data in interview_bookings.items():
-                if (booking_data['user_id'] == user_id and 
-                    booking_data['date'] == interview_date and 
-                    booking_data['time'] == interview_time):
-                    user_info = booking_data['user_info']
+                if (booking_data.get('user_id') == user_id and 
+                    booking_data.get('date') == interview_date and 
+                    booking_data.get('time') == interview_time):
+                    user_info = booking_data.get('user_info', {})
                     break
             
             if user_info:
@@ -354,7 +367,7 @@ def send_reminder_to_user(user_id, interview_date, interview_time):
         return True
         
     except Exception as e:
-        logger.error(f"Error sending reminder to user {user_id}: {e}")
+        logger.error(f"Error in send_reminder_to_user for user {user_id}: {e}")
         return False
 
 def schedule_reminder(user_id, interview_date, interview_time):
@@ -395,9 +408,18 @@ def schedule_reminder(user_id, interview_date, interview_time):
         else:  # Afternoon slots (14:00, 15:00, 16:00)
             reminder_hour = 13 + (time_slot_index - 5)  # 13:00, 14:00, 15:00
         
+        # Create reminder time with proper timezone handling
         reminder_time = date_obj.replace(hour=reminder_hour, minute=0, second=0, microsecond=0)
+        
+        # Check if reminder time is in the past
+        current_time = datetime.now()
+        if reminder_time <= current_time:
+            logger.warning(f"Reminder time {reminder_time} is in the past for user {user_id}, skipping")
+            return False
+        
         # Add Moscow timezone info
-        reminder_time = pytz.timezone('Europe/Moscow').localize(reminder_time)
+        moscow_tz = pytz.timezone('Europe/Moscow')
+        reminder_time = moscow_tz.localize(reminder_time)
         
         # Schedule the reminder
         job_id = f"reminder_{user_id}_{interview_date}_{time_slot_index}"
@@ -405,21 +427,28 @@ def schedule_reminder(user_id, interview_date, interview_time):
         # Remove existing job if it exists
         try:
             scheduler.remove_job(job_id)
-        except:
-            pass
+            logger.info(f"Removed existing reminder job {job_id}")
+        except Exception as remove_error:
+            logger.debug(f"No existing job to remove for {job_id}: {remove_error}")
         
-        # Add new job
-        scheduler.add_job(
-            func=send_reminder_to_user,
-            trigger='date',
-            run_date=reminder_time,
-            args=[user_id, interview_date, interview_time],
-            id=job_id,
-            replace_existing=True
-        )
-        
-        logger.info(f"Reminder scheduled for user {user_id} on {interview_date} at {reminder_time}")
-        return True
+        # Add new job with better error handling
+        try:
+            scheduler.add_job(
+                func=send_reminder_to_user,
+                trigger='date',
+                run_date=reminder_time,
+                args=[user_id, interview_date, interview_time],
+                id=job_id,
+                replace_existing=True,
+                misfire_grace_time=None  # Don't skip if missed
+            )
+            
+            logger.info(f"Reminder scheduled for user {user_id} on {interview_date} at {reminder_time} (job_id: {job_id})")
+            return True
+            
+        except Exception as add_error:
+            logger.error(f"Failed to add reminder job for user {user_id}: {add_error}")
+            return False
         
     except Exception as e:
         logger.error(f"Error scheduling reminder for user {user_id}: {e}")
@@ -510,13 +539,73 @@ def get_next_week_2_dates():
     
     return next_week_2_dates
 
-def format_date_for_display(date):
-    """Format date as DD.MM day_name"""
-    return f"{date.strftime('%d.%m')} {DAY_NAMES[date.weekday()]}"
+def format_date_for_display(date, include_availability=True, mentor_id=None):
+    """Format date as DD.MM day_name with optional availability status"""
+    base_format = f"{date.strftime('%d.%m')} {DAY_NAMES[date.weekday()]}"
+    
+    if include_availability and mentor_id:
+        date_str = date.strftime('%Y-%m-%d')
+        availability = get_date_availability_status(date_str, mentor_id)
+        return f"{base_format} ({availability})"
+    else:
+        return base_format
 
 def format_date_for_callback(date):
     """Format date for callback data"""
     return date.strftime('%Y-%m-%d')
+
+def get_russian_plural_form(number, one_form, few_form, many_form):
+    """Get correct Russian plural form based on number"""
+    if number % 10 == 1 and number % 100 != 11:
+        return one_form
+    elif 2 <= number % 10 <= 4 and (number % 100 < 10 or number % 100 >= 20):
+        return few_form
+    else:
+        return many_form
+
+def get_date_availability_status(selected_date, mentor_id=None):
+    """Get availability status for a specific date and mentor"""
+    try:
+        # Count total slots for this date
+        total_slots = len(TIME_SLOTS)
+        available_slots = 0
+        booked_slots = 0
+        
+        # Check each time slot
+        for i in range(total_slots):
+            # Check if slot is in the past
+            if is_time_slot_in_past(selected_date, i):
+                continue  # Skip past slots
+            
+            # Check if slot is booked for the specific mentor
+            mentor_slot_key = f"{selected_date}_{mentor_id}_{i}"
+            booking_key_2h = f"{selected_date}_{mentor_id}_{i}_2h"
+            
+            # Check if slot is blocked by a 2-hour booking from previous slot
+            is_blocked_by_2h = False
+            if i > 0:  # Check if previous slot has a 2-hour booking that extends to this slot
+                prev_booking_key_2h = f"{selected_date}_{mentor_id}_{i-1}_2h"
+                if prev_booking_key_2h in interview_bookings:
+                    is_blocked_by_2h = True
+            
+            if mentor_slot_key in interview_bookings or booking_key_2h in interview_bookings or is_blocked_by_2h:
+                booked_slots += 1
+            else:
+                available_slots += 1
+        
+        # Determine status with correct Russian plural forms
+        if available_slots == 0:
+            return "все места заняты"
+        elif booked_slots == 0:
+            return "все места свободны"
+        else:
+            # Use correct plural form for "место"
+            place_form = get_russian_plural_form(available_slots, "место", "места", "мест")
+            return f"{available_slots} {place_form} есть"
+            
+    except Exception as e:
+        logger.error(f"Error calculating availability for {selected_date} mentor {mentor_id}: {e}")
+        return "ошибка"
 
 # ============================================================================
 # BOOKING CONFLICT PREVENTION
@@ -572,8 +661,10 @@ def get_booked_slots_for_date(selected_date):
             booked_slots.append(time_slot_index)
     return booked_slots
 
+
+
 # ============================================================================
-# BOT COMMAND HANDLERS
+# BOT COMMANDS AND HANDLERS
 # ============================================================================
 
 def start_command(update: Update, context: CallbackContext):
@@ -619,15 +710,18 @@ def start_command(update: Update, context: CallbackContext):
         # Get available dates
         available_dates = get_available_dates()
     
-        # Create inline keyboard with date buttons
+                # Create inline keyboard with date buttons
         keyboard = []
         for date_str in available_dates:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            formatted_date = format_date_for_display(date_obj)
+            # Get user's permanent mentor for availability display
+            user = update.effective_user
+            permanent_mentor = get_user_permanent_mentor(user.id)
+            formatted_date = format_date_for_display(date_obj, True, permanent_mentor)
             callback_data = f"date_{format_date_for_callback(date_obj)}"
             keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
         
-                # Add "Следующая неделя→" button
+        # Add "Следующая неделя→" button
         keyboard.append([InlineKeyboardButton("Следующая неделя→", callback_data="next_week")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -674,7 +768,10 @@ def handle_next_week(update: Update, context: CallbackContext):
         keyboard = []
         for date_str in next_week_dates:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            formatted_date = format_date_for_display(date_obj)
+            # Get user's permanent mentor for availability display
+            user = update.effective_user
+            permanent_mentor = get_user_permanent_mentor(user.id)
+            formatted_date = format_date_for_display(date_obj, True, permanent_mentor)
             callback_data = f"date_{format_date_for_callback(date_obj)}"
             keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
         
@@ -709,7 +806,10 @@ def handle_next_week_2(update: Update, context: CallbackContext):
         keyboard = []
         for date_str in next_week_2_dates:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            formatted_date = format_date_for_display(date_obj)
+            # Get user's permanent mentor for availability display
+            user = update.effective_user
+            permanent_mentor = get_user_permanent_mentor(user.id)
+            formatted_date = format_date_for_display(date_obj, True, permanent_mentor)
             callback_data = f"date_{format_date_for_callback(date_obj)}"
             keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
         
@@ -761,7 +861,7 @@ def handle_mentor_choice(update: Update, context: CallbackContext):
         keyboard = []
         for date_str in available_dates:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            formatted_date = format_date_for_display(date_obj)
+            formatted_date = format_date_for_display(date_obj, True, mentor_id)
             callback_data = f"date_{format_date_for_callback(date_obj)}"
             keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
         
@@ -807,7 +907,7 @@ def handle_date_selection(update: Update, context: CallbackContext):
         if not permanent_mentor:
             # User doesn't have a permanent mentor
             response_text = (
-                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'))}\n\n"
+                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'), False)}\n\n"
                 f"❌ У вас не выбран основной ментор.\n\n"
                 f"Сначала выберите основного ментора в профиле."
             )
@@ -820,7 +920,7 @@ def handle_date_selection(update: Update, context: CallbackContext):
         mentor_availability = get_mentor_availability(permanent_mentor, selected_date)
         if mentor_availability <= 0:
             response_text = (
-                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'))}\n\n"
+                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'), False)}\n\n"
                 f"❌ Ваш ментор недоступен на эту дату.\n\n"
                 f"Попробуйте выбрать другую дату."
             )
@@ -868,7 +968,7 @@ def handle_date_selection(update: Update, context: CallbackContext):
         
         if not available_slots:
             response_text = (
-                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'))}\n\n"
+                f"📅 Выбрана дата: {format_date_for_display(datetime.strptime(selected_date, '%Y-%m-%d'), False)}\n\n"
                 f"❌ У вашего ментора нет свободного времени на эту дату.\n\n"
                 f"Попробуйте выбрать другую дату."
             )
@@ -1318,6 +1418,10 @@ def handle_back_to_dates(update: Update, context: CallbackContext):
         query = update.callback_query
         query.answer()
         
+        # Get user's permanent mentor
+        user = update.effective_user
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        
         # Get available dates
         available_dates = get_available_dates()
         
@@ -1325,7 +1429,7 @@ def handle_back_to_dates(update: Update, context: CallbackContext):
         keyboard = []
         for date_str in available_dates:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            formatted_date = format_date_for_display(date_obj)
+            formatted_date = format_date_for_display(date_obj, True, permanent_mentor)
             callback_data = f"date_{format_date_for_callback(date_obj)}"
             keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
         
@@ -1885,11 +1989,11 @@ def handle_profile_navigation(update: Update, context: CallbackContext):
             # Add cancel buttons for each booking
             keyboard = []
             for booking_key, booking_data in user_bookings:
-                button_text = f"❌ Отменить {format_date_for_display(datetime.strptime(booking_data['date'], '%Y-%m-%d'))} {booking_data['time']}"
+                button_text = f"❌ Отменить {format_date_for_display(datetime.strptime(booking_data['date'], '%Y-%m-%d'), False)} {booking_data['time']}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"cancel_booking_{booking_key}")])
             
             # Add back button
-            keyboard.append([InlineKeyboardButton("← Назад", callback_data="profile")])
+            keyboard.append([InlineKeyboardButton("← Назад", callback_data="profile_outline")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             query.edit_message_text(response_text, reply_markup=reply_markup, parse_mode='Markdown')
@@ -1909,7 +2013,10 @@ def handle_profile_navigation(update: Update, context: CallbackContext):
             keyboard = []
             for date_str in available_dates:
                 date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                formatted_date = format_date_for_display(date_obj)
+                # Get user's permanent mentor for availability display
+                user = update.effective_user
+                permanent_mentor = get_user_permanent_mentor(user.id)
+                formatted_date = format_date_for_display(date_obj, True, permanent_mentor)
                 callback_data = f"date_{format_date_for_callback(date_obj)}"
                 keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
             
@@ -1931,7 +2038,7 @@ def handle_my_interviews(update: Update, context: CallbackContext):
         # Check if user is a mentor
         is_mentor = is_user_mentor(user.id)
         
-        # Get all upcoming bookings for the user
+        # Get all upcoming bookings for the user with better validation
         all_bookings = []
         seen_bookings = set()  # To avoid duplicates
         
@@ -1939,54 +2046,76 @@ def handle_my_interviews(update: Update, context: CallbackContext):
             # For mentors: get all upcoming interviews assigned to them
             mentor_id = get_mentor_id_by_user_id(user.id)
             
+            if not mentor_id:
+                update.message.reply_text("❌ Ошибка: не удалось определить ваш ID ментора.")
+                return
+            
             for booking_key, booking_data in interview_bookings.items():
-                if booking_data.get('mentor_id') == mentor_id:
-                    # Check if interview is in the past (both date and time)
-                    interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
-                    current_date = datetime.now().date()
+                try:
+                    # Validate booking data
+                    if not all(key in booking_data for key in ['date', 'time', 'mentor_id']):
+                        logger.warning(f"Invalid booking data for key {booking_key}: missing required fields")
+                        continue
                     
-                    # Check if the interview time has passed
-                    is_past = False
-                    if interview_date.date() < current_date:
-                        is_past = True
-                    elif interview_date.date() == current_date:
-                        # Check if the specific time slot has passed
-                        time_slot_index = booking_data.get('time_slot_index', 0)
-                        if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                    if booking_data.get('mentor_id') == mentor_id:
+                        # Check if interview is in the past (both date and time)
+                        interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                        current_date = datetime.now().date()
+                        
+                        # Check if the interview time has passed
+                        is_past = False
+                        if interview_date.date() < current_date:
                             is_past = True
-                    
-                    # Only add if not past
-                    if not is_past:
-                        # Create a unique identifier for the booking to avoid duplicates
-                        booking_id = f"{booking_data['date']}_{booking_data['time']}_{booking_data.get('duration', '1h')}"
-                        if booking_id not in seen_bookings:
-                            seen_bookings.add(booking_id)
-                            all_bookings.append((booking_key, booking_data))
+                        elif interview_date.date() == current_date:
+                            # Check if the specific time slot has passed
+                            time_slot_index = booking_data.get('time_slot_index', 0)
+                            if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                                is_past = True
+                        
+                        # Only add if not past
+                        if not is_past:
+                            # Create a unique identifier for the booking to avoid duplicates
+                            booking_id = f"{booking_data['date']}_{booking_data['time']}_{booking_data.get('duration', '1h')}"
+                            if booking_id not in seen_bookings:
+                                seen_bookings.add(booking_id)
+                                all_bookings.append((booking_key, booking_data))
+                except Exception as booking_error:
+                    logger.error(f"Error processing booking {booking_key}: {booking_error}")
+                    continue
         else:
             # For students: get their own upcoming bookings
             for booking_key, booking_data in interview_bookings.items():
-                if booking_data['user_id'] == user.id:
-                    # Check if interview is in the past (both date and time)
-                    interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
-                    current_date = datetime.now().date()
+                try:
+                    # Validate booking data
+                    if not all(key in booking_data for key in ['date', 'time', 'user_id']):
+                        logger.warning(f"Invalid booking data for key {booking_key}: missing required fields")
+                        continue
                     
-                    # Check if the interview time has passed
-                    is_past = False
-                    if interview_date.date() < current_date:
-                        is_past = True
-                    elif interview_date.date() == current_date:
-                        # Check if the specific time slot has passed
-                        time_slot_index = booking_data.get('time_slot_index', 0)
-                        if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                    if booking_data['user_id'] == user.id:
+                        # Check if interview is in the past (both date and time)
+                        interview_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                        current_date = datetime.now().date()
+                        
+                        # Check if the interview time has passed
+                        is_past = False
+                        if interview_date.date() < current_date:
                             is_past = True
-                    
-                    # Only add if not past
-                    if not is_past:
-                        # Create a unique identifier for the booking to avoid duplicates
-                        booking_id = f"{booking_data['date']}_{booking_data['time']}_{booking_data.get('duration', '1h')}"
-                        if booking_id not in seen_bookings:
-                            seen_bookings.add(booking_id)
-                            all_bookings.append((booking_key, booking_data))
+                        elif interview_date.date() == current_date:
+                            # Check if the specific time slot has passed
+                            time_slot_index = booking_data.get('time_slot_index', 0)
+                            if is_time_slot_in_past(booking_data['date'], time_slot_index):
+                                is_past = True
+                        
+                        # Only add if not past
+                        if not is_past:
+                            # Create a unique identifier for the booking to avoid duplicates
+                            booking_id = f"{booking_data['date']}_{booking_data['time']}_{booking_data.get('duration', '1h')}"
+                            if booking_id not in seen_bookings:
+                                seen_bookings.add(booking_id)
+                                all_bookings.append((booking_key, booking_data))
+                except Exception as booking_error:
+                    logger.error(f"Error processing booking {booking_key}: {booking_error}")
+                    continue
         
         if not all_bookings:
             response_text = (
@@ -2014,70 +2143,141 @@ def handle_my_interviews(update: Update, context: CallbackContext):
         response_text += "**\n\n"
         
         for booking_key, booking_data in all_bookings:
-            date_obj = datetime.strptime(booking_data['date'], '%Y-%m-%d')
-            formatted_date = format_date_for_display(date_obj)
-            
-            # Duration information
-            duration_text = ""
-            if 'duration' in booking_data:
-                if booking_data['duration'] == '1h':
-                    duration_text = " | ⏱️ 1 час"
-                elif booking_data['duration'] == '2h':
-                    duration_text = " | ⏱️ 1.5-2 часа"
-            
-            if is_mentor:
-                # For mentors: show student info
-                student_info = booking_data.get('user_info', {})
-                student_name = student_info.get('first_name', 'Неизвестно')
-                student_username = student_info.get('username', '')
-                student_text = f"{student_name}"
-                if student_username:
-                    student_text += f" @{student_username}"
+            try:
+                date_obj = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                formatted_date = format_date_for_display(date_obj, False)
                 
-                # Get company information
-                company_info = booking_data.get('company', 'Не указана')
+                # Duration information
+                duration_text = ""
+                if 'duration' in booking_data:
+                    if booking_data['duration'] == '1h':
+                        duration_text = " | ⏱️ 1 час"
+                    elif booking_data['duration'] == '2h':
+                        duration_text = " | ⏱️ 1.5-2 часа"
                 
-                response_text += (
-                    f"📅 **{formatted_date}**\n"
-                    f"⏰ Время: {booking_data['time']}{duration_text}\n"
-                    f"👤 Студент: {student_text}\n"
-                    f"🏢 Компания: {company_info}\n\n"
-                )
-            else:
-                # For students: show mentor info
-                mentor_id = booking_data.get('mentor_id')
-                if mentor_id and mentor_id in MENTORS:
-                    mentor_info = MENTORS[mentor_id]
-                    mentor_text = f"{mentor_info['name']} {mentor_info['username']}"
+                if is_mentor:
+                    # For mentors: show student info
+                    student_info = booking_data.get('user_info', {})
+                    student_name = student_info.get('first_name', 'Неизвестно')
+                    student_username = student_info.get('username', '')
+                    student_text = f"{student_name}"
+                    if student_username:
+                        student_text += f" @{student_username}"
+                    
+                    # Get company information
+                    company_info = booking_data.get('company', 'Не указана')
+                    
+                    response_text += (
+                        f"📅 **{formatted_date}**\n"
+                        f"⏰ Время: {booking_data['time']}{duration_text}\n"
+                        f"👤 Студент: {student_text}\n"
+                        f"🏢 Компания: {company_info}\n\n"
+                    )
                 else:
-                    mentor_text = "Не указан"
-                
-                response_text += (
-                    f"📅 **{formatted_date}**\n"
-                    f"⏰ Время: {booking_data['time']}{duration_text}\n"
-                    f"👤 Ментор: {mentor_text}\n\n"
-                )
+                    # For students: show mentor info
+                    mentor_id = booking_data.get('mentor_id')
+                    if mentor_id and mentor_id in MENTORS:
+                        mentor_info = MENTORS[mentor_id]
+                        mentor_text = f"{mentor_info['name']} {mentor_info['username']}"
+                    else:
+                        mentor_text = "Не указан"
+                    
+                    response_text += (
+                        f"📅 **{formatted_date}**\n"
+                        f"⏰ Время: {booking_data['time']}{duration_text}\n"
+                        f"👤 Ментор: {mentor_text}\n\n"
+                    )
+            except Exception as format_error:
+                logger.error(f"Error formatting booking {booking_key}: {format_error}")
+                continue
         
         # Add cancel buttons for each booking
         keyboard = []
         for booking_key, booking_data in all_bookings:
-            button_text = f"❌ Отменить {format_date_for_display(datetime.strptime(booking_data['date'], '%Y-%m-%d'))} {booking_data['time']}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"cancel_booking_{booking_key}")])
+            try:
+                button_text = f"❌ Отменить {format_date_for_display(datetime.strptime(booking_data['date'], '%Y-%m-%d'), False)} {booking_data['time']}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"cancel_booking_{booking_key}")])
+            except Exception as button_error:
+                logger.error(f"Error creating cancel button for booking {booking_key}: {button_error}")
+                continue
         
-        # Add back button
-        keyboard.append([InlineKeyboardButton("← Назад", callback_data="back_to_dates")])
+        # Add back button - should go back to profile, not to date selection
+        keyboard.append([InlineKeyboardButton("← Назад", callback_data="profile_outline")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         update.message.reply_text(response_text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+        logger.info(f"Successfully displayed {len(all_bookings)} interviews for user {user.id} (mentor: {is_mentor})")
         
     except Exception as e:
         logger.error(f"Error in handle_my_interviews: {e}")
         update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
 
-def handle_profile_outline(update: Update, context: CallbackContext):
-    """Handle 'Профиль' outline button"""
+def handle_start_menu(update: Update, context: CallbackContext):
+    """Handle 'start_menu' callback to return to main menu"""
     try:
+        query = update.callback_query
+        query.answer()
+        
+        # Get user info
         user = update.effective_user
+        
+        # Register user if new
+        register_user_if_new(user)
+        
+        # Get user's permanent mentor
+        permanent_mentor = get_user_permanent_mentor(user.id)
+        
+        # Get available dates
+        available_dates = get_available_dates()
+        
+        # Create inline keyboard with date buttons
+        keyboard = []
+        for date_str in available_dates:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            formatted_date = format_date_for_display(date_obj, True, permanent_mentor)
+            callback_data = f"date_{format_date_for_callback(date_obj)}"
+            keyboard.append([InlineKeyboardButton(formatted_date, callback_data=callback_data)])
+        
+        # Add "Следующая неделя→" button
+        keyboard.append([InlineKeyboardButton("Следующая неделя→", callback_data="next_week")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        welcome_text = (
+            f"👋 Привет, {user.first_name}!\n\n"
+            f"📅 Выберите удобную дату для собеседования:"
+        )
+        
+        # Edit the current message to show the main menu
+        query.edit_message_text(welcome_text, reply_markup=reply_markup)
+        
+        # Send outline buttons message
+        outline_keyboard = [
+            ["Мои собеседования"],
+            ["Профиль"]
+        ]
+        outline_markup = ReplyKeyboardMarkup(outline_keyboard, resize_keyboard=True, one_time_keyboard=False)
+        query.message.reply_text("Используйте кнопки ниже для навигации:", reply_markup=outline_markup)
+        
+        logger.info(f"User {user.id} returned to main menu")
+        
+    except Exception as e:
+        logger.error(f"Error in handle_start_menu: {e}")
+        query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
+
+def handle_profile_outline(update: Update, context: CallbackContext):
+    """Handle 'Профиль' outline button and callback"""
+    try:
+        # Check if this is a callback query or a message
+        is_callback = hasattr(update, 'callback_query') and update.callback_query is not None
+        
+        if is_callback:
+            query = update.callback_query
+            query.answer()
+            user = query.from_user
+        else:
+            user = update.effective_user
         
         # Get user's booking statistics
         user_bookings = []
@@ -2135,14 +2335,23 @@ def handle_profile_outline(update: Update, context: CallbackContext):
         keyboard = []
         keyboard.append([InlineKeyboardButton("📅 Мои записи", callback_data="my_bookings")])
         keyboard.append([InlineKeyboardButton("🔄 Сменить ментора", callback_data="change_mentor")])
-        keyboard.append([InlineKeyboardButton("← Назад", callback_data="back_to_dates")])
+        keyboard.append([InlineKeyboardButton("← Назад", callback_data="start_menu")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(profile_text, reply_markup=reply_markup, parse_mode='Markdown')
+        
+        if is_callback:
+            # Edit the current message for callback queries
+            query.edit_message_text(profile_text, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            # Send new message for outline button clicks
+            update.message.reply_text(profile_text, reply_markup=reply_markup, parse_mode='Markdown')
         
     except Exception as e:
         logger.error(f"Error in handle_profile_outline: {e}")
-        update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+        if is_callback:
+            query.edit_message_text("Произошла ошибка. Попробуйте еще раз.")
+        else:
+            update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
 
 def handle_message(update: Update, context: CallbackContext):
     """Handle text messages for outline buttons and company input"""
@@ -2271,6 +2480,30 @@ def error_handler(update: Update, context: CallbackContext):
     """Handle errors"""
     logger.error(f"Update {update} caused error {context.error}")
 
+def validate_database_command(update: Update, context: CallbackContext):
+    """Command to manually validate and clean the database"""
+    try:
+        user = update.effective_user
+        
+        # Only allow admin users to run this command
+        if user.id != 780202036:  # Replace with actual admin user ID
+            update.message.reply_text("❌ У вас нет прав для выполнения этой команды.")
+            return
+        
+        update.message.reply_text("🔍 Начинаю проверку базы данных...")
+        
+        # Run validation
+        is_valid = validate_and_clean_bookings_database()
+        
+        if is_valid:
+            update.message.reply_text("✅ База данных проверена и очищена. Все записи корректны.")
+        else:
+            update.message.reply_text("⚠️ База данных проверена и очищена. Были найдены и исправлены ошибки.")
+            
+    except Exception as e:
+        logger.error(f"Error in validate_database_command: {e}")
+        update.message.reply_text("❌ Произошла ошибка при проверке базы данных.")
+
 def view_database(update: Update, context: CallbackContext):
     """Admin command to view database contents"""
     try:
@@ -2289,7 +2522,7 @@ def view_database(update: Update, context: CallbackContext):
         summary = "📊 Содержимое базы данных:\n\n"
         
         for booking_key, booking_data in interview_bookings.items():
-            user_info = booking_data['user_info']
+            user_info = booking_data.get('user_info', {})
             username = user_info.get('username', '')
             first_name = user_info.get('first_name', 'Unknown')
             
@@ -2299,13 +2532,13 @@ def view_database(update: Update, context: CallbackContext):
                 user_display = first_name
             
             date_obj = datetime.strptime(booking_data['date'], '%Y-%m-%d')
-            formatted_date = format_date_for_display(date_obj)
+            formatted_date = format_date_for_display(date_obj, False)
             
             summary += f"🔑 {booking_key}\n"
             summary += f"👤 Пользователь: {user_display}\n"
             summary += f"📅 Дата: {formatted_date}\n"
             summary += f"⏰ Время: {booking_data['time']}\n"
-            summary += f"📝 Забронировано: {booking_data['booked_at']}\n\n"
+            summary += f"📝 Забронировано: {booking_data.get('booked_at', 'Не указано')}\n\n"
         
         update.message.reply_text(summary)
         
@@ -2336,6 +2569,10 @@ def main():
         load_mentors_from_database()
         logger.info("👨‍🏫 Mentors database loaded successfully!")
         
+        # Validate and clean database on startup
+        logger.info("🔍 Validating database on startup...")
+        validate_and_clean_bookings_database()
+        
         logger.info("📱 Bot is now running. Send /start to your bot to test it!")
         logger.info("📢 Notifications will be sent to your private channel!")
         
@@ -2352,6 +2589,7 @@ def main():
         dispatcher.add_handler(CommandHandler("profile", profile_command))
         dispatcher.add_handler(CommandHandler("mybookings", my_bookings))
         dispatcher.add_handler(CommandHandler("database", view_database))
+        dispatcher.add_handler(CommandHandler("validate_db", validate_database_command))
         dispatcher.add_handler(MessageHandler(Filters.text, handle_message)) # Add message handler for outline buttons
     
     # Add callback query handlers
@@ -2370,6 +2608,9 @@ def main():
         dispatcher.add_handler(CallbackQueryHandler(handle_profile_navigation, pattern='^(my_bookings|close_profile)$'))
         dispatcher.add_handler(CallbackQueryHandler(handle_change_mentor, pattern='^change_mentor$'))
         dispatcher.add_handler(CallbackQueryHandler(handle_change_to_mentor, pattern='^change_to_mentor_'))
+        dispatcher.add_handler(CallbackQueryHandler(handle_my_interviews, pattern='^my_interviews$'))
+        dispatcher.add_handler(CallbackQueryHandler(handle_profile_outline, pattern='^profile_outline$'))
+        dispatcher.add_handler(CallbackQueryHandler(handle_start_menu, pattern='^start_menu$'))
         
 
         
@@ -2394,7 +2635,8 @@ def setup_bot_commands(updater):
         BotCommand("profile", "Посмотреть профиль и статистику"),
         BotCommand("mybookings", "Посмотреть ваши записи"),
         BotCommand("help", "Показать справку по боту"),
-        BotCommand("database", "Просмотр базы данных (админ)")
+        BotCommand("database", "Просмотр базы данных (админ)"),
+        BotCommand("validate_db", "Проверить и очистить базу данных (админ)")
     ]
     
     try:
@@ -2413,6 +2655,78 @@ def sort_bookings_by_time(bookings):
         datetime.strptime(x[1]['date'], '%Y-%m-%d'),
         x[1]['time']
     ))
+
+def validate_and_clean_bookings_database():
+    """Validate and clean up the bookings database to prevent missing interviews"""
+    global interview_bookings
+    
+    try:
+        logger.info("Starting database validation and cleanup...")
+        
+        # Track issues found
+        issues_found = []
+        cleaned_bookings = {}
+        
+        for booking_key, booking_data in interview_bookings.items():
+            try:
+                # Check for required fields
+                required_fields = ['user_id', 'date', 'time', 'mentor_id']
+                missing_fields = [field for field in required_fields if field not in booking_data]
+                
+                if missing_fields:
+                    issues_found.append(f"Booking {booking_key}: Missing fields {missing_fields}")
+                    continue
+                
+                # Validate date format
+                try:
+                    datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                except ValueError:
+                    issues_found.append(f"Booking {booking_key}: Invalid date format {booking_data['date']}")
+                    continue
+                
+                # Validate time format
+                if ' - ' not in booking_data['time']:
+                    issues_found.append(f"Booking {booking_key}: Invalid time format {booking_data['time']}")
+                    continue
+                
+                # Validate user_id is integer
+                try:
+                    int(booking_data['user_id'])
+                except (ValueError, TypeError):
+                    issues_found.append(f"Booking {booking_key}: Invalid user_id {booking_data['user_id']}")
+                    continue
+                
+                # Validate mentor_id exists in MENTORS
+                if booking_data['mentor_id'] not in MENTORS:
+                    issues_found.append(f"Booking {booking_key}: Invalid mentor_id {booking_data['mentor_id']}")
+                    continue
+                
+                # If all validations pass, keep the booking
+                cleaned_bookings[booking_key] = booking_data
+                
+            except Exception as e:
+                issues_found.append(f"Booking {booking_key}: Error during validation - {e}")
+                continue
+        
+        # Report issues
+        if issues_found:
+            logger.warning(f"Found {len(issues_found)} issues in bookings database:")
+            for issue in issues_found:
+                logger.warning(issue)
+        
+        # Update the global variable with cleaned data
+        interview_bookings = cleaned_bookings
+        
+        # Save cleaned data to file
+        save_bookings_to_database()
+        
+        logger.info(f"Database cleanup complete. Kept {len(cleaned_bookings)} valid bookings out of {len(interview_bookings) + len(issues_found)} total.")
+        
+        return len(issues_found) == 0
+        
+    except Exception as e:
+        logger.error(f"Error during database validation: {e}")
+        return False
 
 if __name__ == "__main__":
     main()
