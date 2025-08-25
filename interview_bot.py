@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Global variables
 interview_bookings = {}  # Store interview bookings (in production, use a database)
-DATABASE_FILE = "bookings.json"  # JSON database file
-USERS_DATABASE_FILE = "users.json"  # JSON database file for user registrations
-MENTORS_DATABASE_FILE = "mentors.json"  # JSON database file for mentor assignments
+DATABASE_FILE = "data/bookings.json"  # JSON database file
+USERS_DATABASE_FILE = "data/users.json"  # JSON database file for user registrations
+MENTORS_DATABASE_FILE = "data/mentors.json"  # JSON database file for mentor assignments
 users_database = {}  # Store user registration data
 mentors_database = {}  # Store mentor assignments and availability
 
