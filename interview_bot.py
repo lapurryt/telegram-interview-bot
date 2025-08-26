@@ -272,7 +272,41 @@ def load_bookings_from_database():
             logger.info("No existing database found, starting with empty bookings")
     except Exception as e:
         logger.error(f"Error loading database: {e}")
-interview_bookings = {}
+        interview_bookings = {}
+
+def reschedule_existing_reminders():
+    """Reschedule reminders for all upcoming bookings"""
+    try:
+        current_time = datetime.now(pytz.timezone('Europe/Moscow'))
+        rescheduled_count = 0
+        
+        for booking_key, booking_data in interview_bookings.items():
+            try:
+                # Check if booking is in the future
+                booking_date = datetime.strptime(booking_data['date'], '%Y-%m-%d')
+                booking_datetime = booking_date.replace(
+                    hour=datetime.strptime(booking_data['time'].split(' - ')[0], '%H:%M').hour,
+                    minute=datetime.strptime(booking_data['time'].split(' - ')[0], '%H:%M').minute
+                )
+                booking_datetime = pytz.timezone('Europe/Moscow').localize(booking_datetime)
+                
+                # Only reschedule if booking is in the future
+                if booking_datetime > current_time:
+                    user_id = booking_data['user_id']
+                    interview_date = booking_data['date']
+                    interview_time = booking_data['time']
+                    
+                    if schedule_reminder(user_id, interview_date, interview_time):
+                        rescheduled_count += 1
+                        
+            except Exception as e:
+                logger.error(f"Error rescheduling reminder for booking {booking_key}: {e}")
+                continue
+        
+        logger.info(f"✅ Rescheduled {rescheduled_count} reminders for upcoming bookings")
+        
+    except Exception as e:
+        logger.error(f"Error in reschedule_existing_reminders: {e}")
 
 def save_bookings_to_database():
     """Save bookings to JSON database"""
@@ -376,53 +410,40 @@ def schedule_reminder(user_id, interview_date, interview_time):
         # Parse the interview date and time
         date_obj = datetime.strptime(interview_date, '%Y-%m-%d')
         
-        # Find the time slot index
-        time_slot_index = None
-        
-        # Handle 2-hour bookings (e.g., "13:00 - 15:00")
-        if " - " in interview_time and len(interview_time.split(" - ")) == 2:
-            start_time = interview_time.split(" - ")[0]
-            # Find the first slot that matches the start time
-            for i, slot in enumerate(TIME_SLOTS):
-                if slot.startswith(start_time):
-                    time_slot_index = i
-                    break
+        # Extract start time from interview_time
+        if " - " in interview_time:
+            start_time_str = interview_time.split(" - ")[0]  # Get "13:00" from "13:00 - 15:00"
         else:
-            # Handle 1-hour bookings (e.g., "13:00 - 14:00")
-            for i, slot in enumerate(TIME_SLOTS):
-                if slot == interview_time:
-                    time_slot_index = i
-                    break
+            start_time_str = interview_time.split(" - ")[0] if " - " in interview_time else interview_time
         
-        if time_slot_index is None:
-            logger.error(f"Could not find time slot index for {interview_time}")
-            return False
+        # Parse the start time
+        start_time_obj = datetime.strptime(start_time_str, '%H:%M')
         
-        # Calculate reminder time (1 hour before interview start)
-        if time_slot_index < 3:  # Morning slots (09:00, 10:00, 11:00)
-            reminder_hour = 8 + time_slot_index  # 08:00, 09:00, 10:00
-        elif time_slot_index == 3:  # Lunch slot (12:00)
-            reminder_hour = 11  # 11:00
-        elif time_slot_index == 4:  # After lunch slot (13:00)
-            reminder_hour = 12  # 12:00
-        else:  # Afternoon slots (14:00, 15:00, 16:00)
-            reminder_hour = 13 + (time_slot_index - 5)  # 13:00, 14:00, 15:00
+        # Create interview datetime
+        interview_datetime = date_obj.replace(
+            hour=start_time_obj.hour,
+            minute=start_time_obj.minute,
+            second=0,
+            microsecond=0
+        )
         
-        # Create reminder time with proper timezone handling
-        reminder_time = date_obj.replace(hour=reminder_hour, minute=0, second=0, microsecond=0)
+        # Add timezone info to interview datetime
+        moscow_tz = pytz.timezone('Europe/Moscow')
+        interview_datetime = moscow_tz.localize(interview_datetime)
+        
+        # Calculate reminder time (1 hour before interview)
+        reminder_datetime = interview_datetime - timedelta(hours=1)
+        
+        # Get current time in Moscow timezone
+        current_time = datetime.now(moscow_tz)
         
         # Check if reminder time is in the past
-        current_time = datetime.now()
-        if reminder_time <= current_time:
-            logger.warning(f"Reminder time {reminder_time} is in the past for user {user_id}, skipping")
+        if reminder_datetime <= current_time:
+            logger.warning(f"Reminder time {reminder_datetime} is in the past for user {user_id}, skipping")
             return False
         
-        # Add Moscow timezone info
-        moscow_tz = pytz.timezone('Europe/Moscow')
-        reminder_time = moscow_tz.localize(reminder_time)
-        
-        # Schedule the reminder
-        job_id = f"reminder_{user_id}_{interview_date}_{time_slot_index}"
+        # Create unique job ID
+        job_id = f"reminder_{user_id}_{interview_date}_{start_time_str.replace(':', '')}"
         
         # Remove existing job if it exists
         try:
@@ -431,19 +452,19 @@ def schedule_reminder(user_id, interview_date, interview_time):
         except Exception as remove_error:
             logger.debug(f"No existing job to remove for {job_id}: {remove_error}")
         
-        # Add new job with better error handling
+        # Add new job
         try:
             scheduler.add_job(
                 func=send_reminder_to_user,
                 trigger='date',
-                run_date=reminder_time,
+                run_date=reminder_datetime,
                 args=[user_id, interview_date, interview_time],
                 id=job_id,
                 replace_existing=True,
-                misfire_grace_time=None  # Don't skip if missed
+                misfire_grace_time=None
             )
             
-            logger.info(f"Reminder scheduled for user {user_id} on {interview_date} at {reminder_time} (job_id: {job_id})")
+            logger.info(f"✅ Reminder scheduled for user {user_id} on {interview_date} at {reminder_datetime.strftime('%H:%M')} (job_id: {job_id})")
             return True
             
         except Exception as add_error:
@@ -2572,6 +2593,10 @@ def main():
         # Validate and clean database on startup
         logger.info("🔍 Validating database on startup...")
         validate_and_clean_bookings_database()
+        
+        # Reschedule reminders for existing bookings
+        logger.info("⏰ Rescheduling reminders for existing bookings...")
+        reschedule_existing_reminders()
         
         logger.info("📱 Bot is now running. Send /start to your bot to test it!")
         logger.info("📢 Notifications will be sent to your private channel!")
